@@ -1,0 +1,34 @@
+# 预编译产物（从 GitHub Releases 获取，或本地构建）
+/dist/
+
+# 构建中间产物
+*.syso
+*.exe
+*.exe~
+BiliLottery
+BiliLottery-*
+_tmp/
+debug.log
+*.log
+
+# 本地打包 / 发布草稿
+*.zip
+_release_artifacts/
+diagpkg/
+gocache/
+gotmp/
+
+# 本地配置与密钥（本项目运行时不需要，防止误提交）
+.env
+.env.*
+*.pem
+*.key
+*.p12
+config.local.*
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

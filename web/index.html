@@ -1,0 +1,4694 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bilibili 评论抽奖工具</title>
+
+<style>
+*{
+    box-sizing:border-box;
+}
+
+:root{
+    color-scheme:light dark;
+
+    --page-bg:#f4f6f8;
+    --card-bg:#ffffff;
+    --card-border:#e5e7eb;
+    --text:#202124;
+    --secondary:#666;
+    --muted:#777;
+    --input-bg:#ffffff;
+    --input-border:#cfd4dc;
+    --button:#1677ff;
+    --button-hover:#095fd8;
+    --close:#6b7280;
+    --code-bg:#f1f3f5;
+    --log-bg:#111827;
+    --log-text:#d1fae5;
+
+    /* 弹幕的磨砂玻璃（-a / -b 是渐变两端色：CSS 用它拼渐变，
+       canvas 直接取这两条当渐变停靠色，皮肤只有这一处定义）。
+       浓度就是"背景被糊住多少"：越不透明，背后的页面越看不清 */
+    --dm-glass-a:rgba(255,255,255,.86);
+    --dm-glass-b:rgba(255,255,255,.60);
+    --dm-glass:linear-gradient(150deg, var(--dm-glass-a), var(--dm-glass-b));
+    --dm-glass-border:rgba(255,255,255,.82);
+    --dm-glass-glow:rgba(255,255,255,.5);
+}
+
+@media (prefers-color-scheme:dark){
+    :root{
+        --page-bg:#111315;
+        --card-bg:#1b1e22;
+        --card-border:#30343a;
+        --text:#e8eaed;
+        --secondary:#aeb4bd;
+        --muted:#969da8;
+        --input-bg:#24282d;
+        --input-border:#454b53;
+        --button:#287ff0;
+        --button-hover:#3b91ff;
+        --close:#555d68;
+        --code-bg:#292d33;
+        --log-bg:#0d1117;
+        --log-text:#b8f5d4;
+
+        /* 弹幕的磨砂玻璃（-a / -b 见亮色主题里的说明） */
+        --dm-glass-a:rgba(52,57,65,.74);
+        --dm-glass-b:rgba(28,31,36,.62);
+        --dm-glass:linear-gradient(150deg, var(--dm-glass-a), var(--dm-glass-b));
+        --dm-glass-border:rgba(255,255,255,.20);
+        --dm-glass-glow:rgba(255,255,255,.08);
+    }
+}
+
+html,
+body{
+    margin:0;
+    min-height:100%;
+    /* 放大回弹时会短暂超出屏幕左右边缘，这里压掉随之而来的横向滚动条 */
+    overflow-x:hidden;
+}
+
+body{
+    background:var(--page-bg);
+    color:var(--text);
+    font-family:"Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+
+.wrap{
+    width:min(1100px, calc(100% - 28px));
+    margin:16px auto;
+}
+
+.card{
+    background:var(--card-bg);
+    border:1px solid var(--card-border);
+    border-radius:10px;
+    padding:15px 18px;
+    margin-bottom:10px;
+    box-shadow:0 2px 7px #0000000d;
+    /* 卡片依次淡入上浮（backwards：等待期间保持隐藏）。
+       一开始就 hidden 的卡片，会在显示出来的那一刻自己播一遍 */
+    animation:cardIn .45s cubic-bezier(.2,.9,.3,1) backwards;
+}
+
+.wrap > .card:nth-child(1){animation-delay:0ms}
+.wrap > .card:nth-child(2){animation-delay:70ms}
+.wrap > .card:nth-child(3){animation-delay:140ms}
+.wrap > .card:nth-child(4){animation-delay:210ms}
+.wrap > .card:nth-child(5){animation-delay:280ms}
+
+@keyframes cardIn{
+    from{opacity:0;transform:translateY(10px)}
+    to{opacity:1;transform:translateY(0)}
+}
+
+/* 二维码区出现时轻轻展开 */
+#qr{
+    animation:qrIn .38s cubic-bezier(.2,1.25,.4,1);
+}
+
+@keyframes qrIn{
+    from{opacity:0;transform:translateY(-4px) scale(.96)}
+    to{opacity:1;transform:translateY(0) scale(1)}
+}
+
+h1{
+    font-size:21px;
+    margin:0 0 12px;
+}
+
+h2{
+    font-size:15px;
+    margin:0 0 10px;
+}
+
+.video{
+    display:grid;
+    grid-template-columns:58px minmax(180px,1fr) 100px 80px;
+    gap:8px;
+    align-items:center;
+}
+
+.label{
+    text-align:right;
+}
+
+.input{
+    width:100%;
+    height:34px;
+    border:1px solid var(--input-border);
+    border-radius:6px;
+    padding:0 9px;
+    font-size:14px;
+    color:var(--text);
+    background:var(--input-bg);
+    outline:none;
+}
+
+.input:focus{
+    border-color:var(--button);
+}
+
+.btn{
+    height:34px;
+    border:0;
+    border-radius:6px;
+    padding:0 15px;
+    cursor:pointer;
+    background:var(--button);
+    color:#fff;
+    font-size:14px;
+}
+
+.btn:hover{
+    background:var(--button-hover);
+}
+
+.btn:disabled{
+    opacity:.55;
+    cursor:not-allowed;
+}
+
+.status{
+    font-size:13px;
+    color:var(--secondary);
+}
+
+.condition-row{
+    display:grid;
+    grid-template-columns:24px 220px 90px;
+    column-gap:8px;
+    align-items:center;
+    margin:7px 0;
+}
+
+.condition-row .text,
+.draw-row .text{
+    white-space:nowrap;
+}
+
+.condition-note{
+    margin:6px 0 10px 32px;
+    color:var(--muted);
+    font-size:13px;
+    line-height:1.6;
+}
+
+.draw-row{
+    display:grid;
+    grid-template-columns:24px 220px 90px;
+    column-gap:8px;
+    align-items:center;
+    margin-top:7px;
+}
+
+.start{
+    margin-top:12px;
+    width:130px;
+}
+
+.close{
+    margin-left:6px;
+    background:var(--close);
+}
+
+.close:hover{
+    background:#4b5563;
+}
+
+.log{
+    height:260px;
+    min-height:0;
+    max-height:260px;
+    overflow:auto;
+    background:var(--log-bg);
+    color:var(--log-text);
+    border-radius:7px;
+    padding:11px 13px;
+    font:13px/1.6 Consolas,"Courier New",monospace;
+    white-space:pre-wrap;
+    border:1px solid var(--card-border);
+}
+
+.qr{
+    display:none;
+    margin-top:12px;
+    text-align:center;
+}
+
+.qr.show{
+    display:block;
+}
+
+.qr img{
+    width:240px;
+    height:240px;
+    border:1px solid var(--card-border);
+}
+
+/* 运行日志：每条新行轻轻滑入（只作用于当前的最后一行，所以不会重播） */
+#log > *:last-child{
+    animation:logIn .3s cubic-bezier(.2,.9,.3,1);
+}
+
+@keyframes logIn{
+    from{opacity:0;transform:translateX(-4px)}
+    to{opacity:1;transform:translateX(0)}
+}
+
+/* 中奖名单 */
+
+.video-meta{
+    color:var(--muted);
+    font-size:calc(13px * var(--w-scale,1));
+}
+
+.winners{
+    /* 中奖人数越多，这个系数越小，整张名单等比收紧 */
+    --w-scale:1;
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(calc(320px * var(--w-scale)),1fr));
+    gap:calc(12px * var(--w-scale));
+    margin-top:12px;
+}
+
+.winner{
+    display:flex;
+    gap:calc(12px * var(--w-scale,1));
+    border:1px solid var(--card-border);
+    border-radius:10px;
+    padding:calc(12px * var(--w-scale,1));
+    background:var(--card-bg);
+    box-shadow:0 2px 7px #0000000d;
+    font-size:calc(16px * var(--w-scale,1));
+    transition:background-color .45s ease, border-color .45s ease, box-shadow .45s ease;
+}
+
+.winner .avatar{
+    width:calc(64px * var(--w-scale,1));
+    height:calc(64px * var(--w-scale,1));
+    border-radius:50%;
+    object-fit:cover;
+    flex-shrink:0;
+    background:var(--code-bg);
+    display:block;
+}
+
+/* 头像可点击跳转到用户主页 */
+.avatar-link{
+    display:inline-flex;
+    /* .winner 是 flex 容器，默认 stretch 会把链接拉成和卡片一样高，
+       蓝环/轮廓就会变成细长椭圆——锁在内容高度上才是紧贴头像的正圆 */
+    align-self:flex-start;
+    flex-shrink:0;
+    border-radius:50%;
+    text-decoration:none;
+    color:inherit;
+    cursor:pointer;
+    transition:transform .15s ease,box-shadow .15s ease;
+}
+
+.avatar-link:hover{
+    transform:translateY(-2px);
+    box-shadow:0 0 0 2px var(--button);
+}
+
+.avatar-link:focus-visible{
+    outline:2px solid var(--button);
+    outline-offset:2px;
+}
+
+.rank{
+    flex-shrink:0;
+    width:calc(22px * var(--w-scale,1));
+    height:calc(22px * var(--w-scale,1));
+    line-height:calc(22px * var(--w-scale,1));
+    text-align:center;
+    border-radius:50%;
+    background:#f25d54;
+    color:#fff;
+    font-size:calc(12px * var(--w-scale,1));
+    font-weight:600;
+    margin-top:2px;
+}
+
+.badge{
+    display:inline-block;
+    background:var(--button);
+    color:#fff;
+    border-radius:4px;
+    padding:calc(1px * var(--w-scale,1)) calc(8px * var(--w-scale,1));
+    font-size:calc(12px * var(--w-scale,1));
+}
+
+.comment{
+    margin-top:calc(8px * var(--w-scale,1));
+    background:var(--code-bg);
+    border-radius:8px;
+    padding:calc(8px * var(--w-scale,1)) calc(10px * var(--w-scale,1));
+    font-size:calc(13px * var(--w-scale,1));
+    line-height:1.5;
+    color:var(--text);
+    word-break:break-word;
+}
+
+/* ===== 开奖大轴：头像先按名单顺序滑到各自位置，再展开评论 ===== */
+
+/* 飞行层：中奖头像在固定层里从候选池滑到名单中的位置 */
+.reveal-layer{
+    position:fixed;
+    inset:0;
+    z-index:70;
+    pointer-events:none;
+}
+
+/* 预备态：名单占好位置但整体不可见（卡片底色、头像、内容都收起），
+   等头像飞到位后再逐一展开 */
+.winners.pre .winner{
+    background:transparent;
+    border-color:transparent;
+    box-shadow:none;
+    transition:none;
+}
+
+.winners.pre .winner .avatar-link{
+    opacity:0;
+}
+
+/* 序号也要等头像飞到位后才出现 */
+.winners.pre .winner .rank{
+    opacity:0;
+}
+
+.winners.pre .winner .win-body{
+    clip-path:inset(0 0 100% 0);
+    transition:none;
+}
+
+.winners.pre .winner .win-body::after{
+    top:calc(0% - 14px);
+    opacity:1;
+    transition:none;
+}
+
+/* 正文块：始终按最终尺寸参与布局，展开时像卷轴一样从上往下垂落；
+   不用宽度生长，否则过渡中途内容会被压窄疯狂换行，会把卡片撑成细长空条。
+   两端都写 inset() 才能平滑插值（none 与 inset 之间不会过渡） */
+.winner .win-body{
+    position:relative;
+    min-width:0;
+    clip-path:inset(0 0 0 0);
+    overflow:hidden;
+    transition:clip-path .65s cubic-bezier(.25,.8,.3,1);
+    transition-delay:var(--open-delay, 0s);
+}
+
+/* 卷边：贴着展开前沿一起下滑（与裁剪同曲线、同延迟），收尾淡出 */
+.winner .win-body::after{
+    content:"";
+    position:absolute;
+    left:0;
+    right:0;
+    top:calc(100% - 14px);
+    height:14px;
+    pointer-events:none;
+    background:linear-gradient(180deg, #00000000, #0000002e);
+    opacity:0;
+    transition:top .65s cubic-bezier(.25,.8,.3,1), opacity .65s ease;
+    transition-delay:var(--open-delay, 0s);
+}
+
+.winners .winner:nth-child(2){--open-delay:.09s}
+.winners .winner:nth-child(3){--open-delay:.18s}
+.winners .winner:nth-child(4){--open-delay:.27s}
+.winners .winner:nth-child(5){--open-delay:.36s}
+.winners .winner:nth-child(n+6){--open-delay:.42s}
+
+/* ============ 抓取 / 筛选 实况 ============ */
+
+.viz{
+    display:block;
+}
+
+.viz[hidden]{
+    display:none;
+}
+
+.card-head{
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    flex-wrap:wrap;
+    margin-bottom:10px;
+}
+
+.card-head h2{
+    margin:0;
+}
+
+.viz-clock{
+    margin-left:auto;
+    font:12px/1 Consolas,"Courier New",monospace;
+    color:var(--muted);
+    font-variant-numeric:tabular-nums;
+}
+
+.viz-video{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    min-width:0;
+    margin-bottom:12px;
+    font-size:12px;
+    color:var(--secondary);
+}
+
+.viz-video[hidden]{
+    display:none;
+}
+
+.viz-video img{
+    width:24px;
+    height:24px;
+    border-radius:50%;
+    object-fit:cover;
+    flex-shrink:0;
+    background:var(--code-bg);
+}
+
+.viz-video span{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+/* 步骤条 */
+
+.steps{
+    display:flex;
+    margin:2px 0 16px;
+}
+
+.step{
+    position:relative;
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:6px;
+    font-size:12px;
+    color:var(--muted);
+    text-align:center;
+    transition:color .3s ease;
+}
+
+.step::before{
+    content:"";
+    position:absolute;
+    top:13px;
+    right:50%;
+    width:100%;
+    height:2px;
+    background:var(--card-border);
+    transition:background .45s ease;
+}
+
+.step:first-child::before{
+    display:none;
+}
+
+.step .dot{
+    position:relative;
+    z-index:1;
+    width:26px;
+    height:26px;
+    border-radius:50%;
+    display:grid;
+    place-items:center;
+    background:var(--code-bg);
+    border:1px solid var(--card-border);
+    font-size:12px;
+    font-weight:600;
+    color:var(--muted);
+    transition:background .3s ease,border-color .3s ease,color .3s ease;
+}
+
+.step.active{
+    color:var(--text);
+    font-weight:600;
+}
+
+.step.active .dot{
+    background:var(--button);
+    border-color:var(--button);
+    color:#fff;
+    animation:dotPulse 1.6s ease-out infinite;
+}
+
+.step.done{
+    color:var(--secondary);
+}
+
+.step.done .dot{
+    background:#16a34a;
+    border-color:#16a34a;
+    color:#fff;
+}
+
+.step.done::before{
+    background:#16a34a;
+}
+
+.step.failed .dot{
+    background:#ef4444;
+    border-color:#ef4444;
+    color:#fff;
+}
+
+@keyframes dotPulse{
+    0%{box-shadow:0 0 0 0 #1677ff66}
+    70%{box-shadow:0 0 0 9px #1677ff00}
+    100%{box-shadow:0 0 0 0 #1677ff00}
+}
+
+/* 面板 */
+
+.viz-grid{
+    display:grid;
+    grid-template-columns:minmax(230px,1fr) minmax(280px,1.35fr);
+    gap:12px;
+}
+
+.panel{
+    position:relative;
+    border:1px solid var(--card-border);
+    border-radius:10px;
+    padding:10px 12px;
+    overflow:hidden;
+    background:var(--card-bg);
+}
+
+.panel-head{
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    margin-bottom:8px;
+}
+
+.panel-title{
+    font-size:13px;
+    font-weight:600;
+}
+
+.panel-sub{
+    margin-left:auto;
+    font-size:12px;
+    color:var(--muted);
+    font-variant-numeric:tabular-nums;
+}
+
+/* 收集评论：环形进度 */
+.crawl-body{
+    display:flex;
+    align-items:center;
+    gap:14px;
+}
+
+.ring-wrap{
+    position:relative;
+    width:104px;
+    height:104px;
+    flex-shrink:0;
+}
+
+.ring{
+    width:104px;
+    height:104px;
+    transform:rotate(-90deg);
+}
+
+.ring circle{
+    fill:none;
+    stroke-width:9;
+    stroke-linecap:round;
+}
+
+.ring-bg{
+    stroke:var(--code-bg);
+}
+
+.ring-bar{
+    stroke:url(#ringGrad);
+    stroke-dasharray:326.73;
+    stroke-dashoffset:326.73;
+    transition:stroke-dashoffset .45s ease;
+}
+
+.viz-running .ring.indet{
+    animation:ringSpin 1.5s linear infinite;
+}
+
+.viz-running .ring.indet .ring-bar{
+    stroke-dasharray:80 246.73;
+    stroke-dashoffset:0;
+    transition:none;
+}
+
+@keyframes ringSpin{
+    from{transform:rotate(-90deg)}
+    to{transform:rotate(270deg)}
+}
+
+.ring-label{
+    position:absolute;
+    inset:0;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:2px;
+}
+
+.ring-label strong{
+    font:600 22px/1 Consolas,"Courier New",monospace;
+    font-variant-numeric:tabular-nums;
+}
+
+.ring-label span{
+    font-size:11px;
+    color:var(--muted);
+}
+
+.crawl-stats{
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+    min-width:0;
+    font-size:12px;
+    color:var(--secondary);
+}
+
+.crawl-stats b{
+    color:var(--text);
+    font-variant-numeric:tabular-nums;
+}
+
+/* 评论弹幕：全屏浮层，从右向左滚过，不拦截任何鼠标操作
+   气泡现在全部画在一张 canvas 上（每条先离屏预渲染成位图，每帧只 drawImage），
+   所以这里只剩「一层 + 一张画布」的样式 */
+
+.danmu{
+    position:fixed;
+    inset:0;
+    z-index:60;
+    pointer-events:none;
+    overflow:hidden;
+}
+
+.danmu canvas{
+    display:block;
+    width:100%;
+    height:100%;
+}
+
+/* 清场：整层淡出（画布整体淡出，而非逐条打断滚动动画） */
+.danmu.closing{
+    opacity:0;
+    transition:opacity .35s ease;
+}
+
+/* 核对资格 */
+
+/* 抓取/核对进行中：环形进度轻轻发光 */
+.viz-running .ring{
+    animation:ringGlow 2.2s ease-in-out infinite;
+}
+
+@keyframes ringGlow{
+    0%,100%{filter:drop-shadow(0 0 0 #1677ff00)}
+    50%{filter:drop-shadow(0 0 7px #1677ff8c)}
+}
+
+.bar{
+    display:flex;
+    height:8px;
+    border-radius:5px;
+    overflow:hidden;
+    background:var(--code-bg);
+    margin-bottom:9px;
+}
+
+.bar i{
+    display:block;
+    height:100%;
+    width:0;
+    transition:width .4s ease;
+}
+
+.bar-ok{
+    background:linear-gradient(90deg,#34d399,#16a34a);
+}
+
+.bar-ng{
+    background:linear-gradient(90deg,#f87171,#dc2626);
+}
+
+.scan{
+    position:relative;
+    display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(144px,1fr));
+    gap:6px;
+    height:150px;
+    overflow:hidden;
+}
+
+.chip{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    min-width:0;
+    height:32px;
+    border:1px solid var(--card-border);
+    border-radius:8px;
+    padding:0 6px;
+    background:var(--card-bg);
+    animation:chipIn .3s ease both;
+}
+
+.chip img{
+    width:22px;
+    height:22px;
+    border-radius:50%;
+    object-fit:cover;
+    flex-shrink:0;
+    background:var(--code-bg);
+}
+
+.chip .nm{
+    flex:1;
+    min-width:0;
+    font-size:12px;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+.chip .mk{
+    flex-shrink:0;
+    font-size:11px;
+}
+
+.chip.ok{
+    border-color:#22c55e80;
+    background:#22c55e14;
+}
+
+.chip.ok .mk{
+    color:#16a34a;
+}
+
+.chip.ng{
+    opacity:.55;
+}
+
+.chip.ng .mk{
+    color:#ef4444;
+}
+
+@keyframes chipIn{
+    from{opacity:0;transform:translateY(-6px) scale(.92)}
+    to{opacity:1;transform:none}
+}
+
+.scan-empty{
+    grid-column:1/-1;
+    align-self:center;
+    text-align:center;
+    font-size:12px;
+    color:var(--muted);
+}
+
+/* 候选池：独立窗口，抽奖动效与中奖名单都在这里 */
+
+.pool-head{
+    display:flex;
+    align-items:baseline;
+    gap:8px;
+    margin-bottom:10px;
+}
+
+.pool-stat{
+    font-size:13px;
+    font-weight:600;
+}
+
+.pool-state{
+    margin-left:auto;
+    font-size:12px;
+    color:var(--muted);
+}
+
+.pool{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    align-content:flex-start;
+}
+
+/* 出名单前：整池淡出并收起，把窗口完全交给中奖名单 */
+.pool.clearing{
+    opacity:0;
+    transition:opacity .3s ease;
+}
+
+.pool.cleared{
+    display:none;
+}
+
+.bub{
+    position:relative;
+    width:34px;
+    height:34px;
+    flex-shrink:0;
+    border-radius:50%;
+    text-decoration:none;
+    animation:bubIn .38s cubic-bezier(.2,1.5,.45,1) backwards;
+    /* 缩放用更短的时长 + 前快后慢的曲线：高亮弹起来更利索 */
+    transition:transform .12s cubic-bezier(.2,.9,.3,1),opacity .16s ease,box-shadow .16s ease;
+}
+
+/* 候选池气泡依次入场（复用 bubIn 的 backwards；只给前 12 个错峰，其余一起出来） */
+.pool .bub:nth-child(1){animation-delay:0ms}
+.pool .bub:nth-child(2){animation-delay:22ms}
+.pool .bub:nth-child(3){animation-delay:44ms}
+.pool .bub:nth-child(4){animation-delay:66ms}
+.pool .bub:nth-child(5){animation-delay:88ms}
+.pool .bub:nth-child(6){animation-delay:110ms}
+.pool .bub:nth-child(7){animation-delay:132ms}
+.pool .bub:nth-child(8){animation-delay:154ms}
+.pool .bub:nth-child(9){animation-delay:176ms}
+.pool .bub:nth-child(10){animation-delay:198ms}
+.pool .bub:nth-child(11){animation-delay:220ms}
+.pool .bub:nth-child(12){animation-delay:242ms}
+
+.bub img{
+    display:block;
+    width:100%;
+    height:100%;
+    border-radius:50%;
+    object-fit:cover;
+    background:var(--code-bg);
+}
+
+.bub::after{
+    content:"";
+    position:absolute;
+    inset:-2px;
+    border-radius:50%;
+    border:1px solid transparent;
+    transition:border-color .18s ease;
+}
+
+.bub:hover{
+    transform:translateY(-3px) scale(1.08);
+}
+
+.bub:hover::after{
+    border-color:var(--button);
+}
+
+@keyframes bubIn{
+    from{opacity:0;transform:scale(.3)}
+    to{opacity:1;transform:scale(1)}
+}
+
+/* 抽奖进行中：整体压暗，随机高亮跳动；整池再做极轻微的呼吸，画面不僵 */
+.pool.drawing{
+    animation:poolBreath 1.6s ease-in-out infinite;
+}
+
+@keyframes poolBreath{
+    0%,100%{transform:scale(1)}
+    50%{transform:scale(1.012)}
+}
+
+.pool.drawing .bub{
+    opacity:.42;
+}
+
+.pool.drawing .bub.hit{
+    opacity:1;
+    transform:translateY(-2px) scale(1.18);
+    box-shadow:0 0 0 2px var(--button),0 0 14px #1677ff77;
+    z-index:2;
+    /* 每拍点亮时从小弹到高亮尺寸，跳动有节奏感。
+       不设 fill-mode：被打断/移除时不会残留，不压后续样式 */
+    animation:hitPulse .22s cubic-bezier(.2,1.4,.4,1);
+}
+
+@keyframes hitPulse{
+    from{transform:translateY(-2px) scale(1.02)}
+    to{transform:translateY(-2px) scale(1.18)}
+}
+
+/* 定格：只留下中奖者 */
+.pool.locked .bub{
+    opacity:.16;
+    transform:scale(.86);
+}
+
+/* 未中奖的必须是“瞬时”压暗（不走过渡）：金光亮起的那一帧背景就该已经是暗的，
+   否则会看到一层慢半拍的淡出，定格的力道就散了 */
+.pool.locked .bub:not(.win){
+    transition:none;
+}
+
+/* 中奖头像：先快速冲到比最终尺寸略大，再连续回弹几次收在 1.22。
+   只动 transform，不要动 opacity——整池淡出（.pool.clearing）靠的就是 opacity */
+.pool.locked .bub.win{
+    opacity:1;
+    transform:scale(1.22);
+    box-shadow:0 0 0 2px #f59e0b,0 0 18px #f59e0b99;
+    z-index:3;
+    animation:winBounce .68s cubic-bezier(.22,.61,.36,1) both;
+}
+
+/* 定格瞬间向外放一圈金环：一击即散，定格更有“落定”的分量 */
+.pool.locked .bub.win::after{
+    border-color:#f59e0b;
+    animation:winRing .7s cubic-bezier(.2,.7,.3,1) both;
+}
+
+@keyframes winRing{
+    from{transform:scale(.85);opacity:.95}
+    to{transform:scale(1.75);opacity:0}
+}
+
+/* 峰值 1.34（只比最终尺寸大 10%），回弹两次后收在 1.22 */
+@keyframes winBounce{
+    0%{transform:scale(1.18)}
+    18%{transform:scale(1.34)}
+    45%{transform:scale(1.13)}
+    72%{transform:scale(1.26)}
+    100%{transform:scale(1.22)}
+}
+
+/* 筛选结束：候选池从紧凑布局舒展成宽松布局
+   （单个尺寸由 JS 按候选数算好后写进 --bub-size / --bub-gap） */
+.pool.loose{
+    gap:var(--bub-gap, 16px);
+}
+
+.pool.loose .bub,
+.pool.loose .pool-more{
+    width:var(--bub-size, 56px);
+    height:var(--bub-size, 56px);
+}
+
+.pool.loose .pool-more{
+    font-size:14px;
+}
+
+.pool-more{
+    display:grid;
+    place-items:center;
+    width:34px;
+    height:34px;
+    flex-shrink:0;
+    border-radius:50%;
+    background:var(--code-bg);
+    font-size:11px;
+    color:var(--muted);
+}
+
+.pool-empty{
+    font-size:12px;
+    color:var(--muted);
+}
+
+/* 阶段聚焦：把当前正在执行的窗口滚到视口中间并适度放大，做出“聚光灯”手感 */
+
+.panel,
+#poolCard{
+    transition:transform .5s cubic-bezier(.22,1.05,.36,1),
+        box-shadow .5s ease,
+        border-color .5s ease,
+        margin-bottom .5s cubic-bezier(.22,1.05,.36,1);
+}
+
+.stage-focus{
+    position:relative;
+    z-index:5;
+    transform:scale(1.025);
+    border-color:var(--button);
+    scroll-margin-block:18px;
+    box-shadow:
+        0 0 0 1px #1677ff59,
+        0 14px 34px #1677ff26,
+        0 0 56px #1677ff1f;
+}
+
+/* 候选池是整宽卡片，放大收一档，避免顶出横向滚动条 */
+#poolCard.stage-focus{
+    transform:scale(1.015);
+}
+
+/* 中奖卡片入场 */
+
+.winners.reveal .winner{
+    animation:winnerIn .55s cubic-bezier(.2,1.55,.38,1) both, winGlow 1.1s ease-out;
+}
+
+/* 名单卡片浮出后，一层金光晕扫过（一次性，不常驻） */
+@keyframes winGlow{
+    0%{box-shadow:0 0 0 0 #f59e0b00}
+    35%{box-shadow:0 0 0 3px #f59e0bcc,0 0 22px #f59e0b66}
+    100%{box-shadow:0 0 0 0 #f59e0b00}
+}
+
+.winners.reveal .winner:nth-child(2){animation-delay:.1s}
+.winners.reveal .winner:nth-child(3){animation-delay:.2s}
+.winners.reveal .winner:nth-child(4){animation-delay:.3s}
+.winners.reveal .winner:nth-child(5){animation-delay:.4s}
+.winners.reveal .winner:nth-child(n+6){animation-delay:.5s}
+
+@keyframes winnerIn{
+    from{opacity:0;transform:translateY(10px) scale(.96)}
+    to{opacity:1;transform:none}
+}
+
+@media(max-width:900px){
+    .winners{
+        grid-template-columns:1fr;
+    }
+
+    .viz-grid{
+        grid-template-columns:1fr;
+    }
+}
+
+@media(max-width:700px){
+    .wrap{
+        width:calc(100% - 16px);
+        margin:8px auto;
+    }
+
+    .card{
+        padding:13px 14px;
+        margin-bottom:8px;
+    }
+
+    h1{
+        font-size:19px;
+        margin-bottom:10px;
+    }
+
+    .video{
+        grid-template-columns:55px 1fr;
+    }
+
+    .video .btn,
+    .video .status{
+        grid-column:2;
+    }
+
+    .condition-row,
+    .draw-row{
+        grid-template-columns:24px 1fr 75px;
+    }
+
+    .condition-note{
+        margin-left:32px;
+    }
+
+    .log{
+        height:190px;
+        min-height:0;
+        max-height:190px;
+    }
+}
+
+@media(prefers-reduced-motion:reduce){
+    *{
+        scroll-behavior:auto!important;
+    }
+
+    .stage-focus{
+        transform:none;
+    }
+
+    .avatar-link{
+        transition:none;
+    }
+
+    .avatar-link:hover{
+        transform:none;
+    }
+
+    .viz *,
+    #poolCard *,
+    .winners.reveal .winner,
+    .card,
+    #qr,
+    #log > *:last-child,
+    .viz-running .ring,
+    .pool .bub{
+        animation:none!important;
+        transition:none!important;
+    }
+}
+</style>
+
+</head>
+
+<body>
+
+<div class="wrap">
+
+
+<div class="card">
+
+    <h1>Bilibili 评论抽奖工具</h1>
+
+    <h2>视频</h2>
+
+    <div class="video">
+
+        <div class="label">BV号：</div>
+
+        <input
+            id="bv"
+            class="input"
+            placeholder="请输入视频 BV 号"
+        >
+
+        <button id="login" class="btn">
+            扫码登录
+        </button>
+
+        <span id="status" class="status">
+            未登录
+        </span>
+
+    </div>
+
+    <div id="qr" class="qr">
+
+        <div class="muted">
+            请使用 Bilibili APP 扫码并确认
+        </div>
+
+        <img
+            id="qrimg"
+            alt="Bilibili 登录二维码"
+            src=""
+        >
+
+        <div id="qrhint" class="muted"></div>
+
+    </div>
+
+</div>
+
+
+<div class="card">
+
+    <h2>参与条件</h2>
+
+    <div class="condition-row">
+
+        <span>
+            <input
+                id="levelCheck"
+                type="checkbox"
+                checked
+            >
+        </span>
+
+        <span class="text">
+            用户等级 ≥
+        </span>
+
+        <input
+            id="level"
+            class="input"
+            type="number"
+            min="0"
+            max="6"
+            value="6"
+        >
+
+    </div>
+
+
+    <div class="condition-row">
+
+        <span>
+            <input
+                id="medalCheck"
+                type="checkbox"
+                checked
+            >
+        </span>
+
+        <span class="text">
+            UP 粉丝团灯牌 ≥
+        </span>
+
+        <input
+            id="medal"
+            class="input"
+            type="number"
+            min="1"
+            value="1"
+        >
+
+    </div>
+
+
+    <div class="condition-row">
+
+        <span>
+            <input
+                id="excludeHiddenList"
+                type="checkbox"
+            >
+        </span>
+
+        <span class="text">
+            排除隐藏粉丝团灯牌的用户
+        </span>
+
+        <span></span>
+
+    </div>
+
+
+    <div class="condition-row">
+
+        <span>
+            <input
+                id="subCommentCheck"
+                type="checkbox"
+            >
+        </span>
+
+        <span class="text">
+            二级评论也参与
+        </span>
+
+        <span></span>
+
+    </div>
+
+
+    <div class="condition-note">
+      <p style="text-indent: 2em;">默认按评论区的粉丝团灯牌判定：拥有该 UP 粉丝团灯牌的人在评论区都会显示，无论是否佩戴、是否隐藏。勾选「排除隐藏粉丝团灯牌的用户」后，只按对方个人的粉丝团灯牌列表判定——对方隐藏了粉丝团灯牌，或设为“仅显示当前佩戴”且没有佩戴上当前 UP 主的粉丝团灯牌时，会被判为没有粉丝团灯牌。</p>
+      </div>
+
+
+    <div class="draw-row">
+
+        <span></span>
+
+        <span class="text">
+            中奖名额：
+        </span>
+
+        <input
+            id="count"
+            class="input"
+            type="number"
+            min="1"
+            value="1"
+        >
+
+    </div>
+
+
+    <button id="start" class="btn start">
+        开始抽奖
+    </button>
+
+    <button id="close" class="btn close">
+        退出程序
+    </button>
+
+</div>
+
+
+<div id="vizCard" class="card viz" hidden>
+
+    <div class="card-head">
+
+        <h2>抽奖实况</h2>
+
+        <span id="vizState" class="muted"></span>
+
+        <span id="vizClock" class="viz-clock"></span>
+
+    </div>
+
+    <div id="vizVideo" class="viz-video" hidden>
+
+        <img id="vizUpAvatar" alt="UP主头像">
+
+        <span id="vizVideoTitle"></span>
+
+    </div>
+
+    <div class="steps" id="vizSteps">
+
+        <div class="step" data-stage="video">
+            <span class="dot">1</span>
+            <span class="cap">解析视频</span>
+        </div>
+
+        <div class="step" data-stage="comments">
+            <span class="dot">2</span>
+            <span class="cap">收集评论</span>
+        </div>
+
+        <div class="step" data-stage="filter">
+            <span class="dot">3</span>
+            <span class="cap">核对资格</span>
+        </div>
+
+        <div class="step" data-stage="draw">
+            <span class="dot">4</span>
+            <span class="cap">抽取幸运儿</span>
+        </div>
+
+    </div>
+
+    <div class="viz-grid">
+
+        <section class="panel" id="filterPanel">
+
+            <div class="panel-head">
+
+                <span class="panel-title">核对资格</span>
+
+                <span class="panel-sub" id="filterStat">等待开始</span>
+
+            </div>
+
+            <div class="bar">
+
+                <i class="bar-ok" id="barOk"></i>
+
+                <i class="bar-ng" id="barNg"></i>
+
+            </div>
+
+            <div class="scan" id="scanGrid"></div>
+
+        </section>
+
+        <section class="panel" id="crawlPanel">
+
+            <div class="panel-head">
+
+                <span class="panel-title">收集评论</span>
+
+                <span class="panel-sub" id="crawlPage">等待开始</span>
+
+            </div>
+
+            <div class="crawl-body">
+
+                <div class="ring-wrap">
+
+                    <svg class="ring" id="crawlRing" viewBox="0 0 120 120">
+
+                        <defs>
+
+                            <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+
+                                <stop offset="0%" stop-color="#3b91ff"></stop>
+
+                                <stop offset="100%" stop-color="#16a34a"></stop>
+
+                            </linearGradient>
+
+                        </defs>
+
+                        <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+
+                        <circle class="ring-bar" id="ringBar" cx="60" cy="60" r="52"></circle>
+
+                    </svg>
+
+                    <div class="ring-label">
+                        <strong id="crawlCount">0</strong>
+                        <span>条评论</span>
+                    </div>
+
+                </div>
+
+                <div class="crawl-stats">
+
+                    <div>评论总数：<b id="crawlTotal">-</b></div>
+
+                    <div>二级评论：<b id="crawlSub">0</b></div>
+
+                    <div>去重用户：<b id="crawlUsers">-</b></div>
+
+                </div>
+
+            </div>
+
+        </section>
+
+    </div>
+
+</div>
+
+
+<div class="card" id="poolCard" hidden>
+
+    <div class="pool-head">
+
+        <span class="pool-stat" id="poolStat">暂无候选人</span>
+
+        <span class="pool-state" id="poolState"></span>
+
+    </div>
+
+    <div class="pool" id="pool"></div>
+
+    <div id="winners" class="winners"></div>
+
+</div>
+
+
+<div class="card">
+
+    <h2>运行日志</h2>
+
+    <div id="log" class="log"></div>
+
+</div>
+
+
+</div>
+
+<!-- 全屏弹幕浮层：抓评论时把评论滚过整屏（气泡全部画在这一张画布上） -->
+<div class="danmu" id="danmu">
+    <canvas id="danmuCanvas"></canvas>
+</div>
+
+<!-- 开奖大轴的飞行层：中奖头像从这里滑到名单里的位置 -->
+<div class="reveal-layer" id="revealLayer"></div>
+
+<script>
+
+const $ = id => document.getElementById(id);
+
+let loginPolling = false;
+let lastQRVisible = false;
+
+window.__busyDrawing = false;
+
+
+/* ============================================================
+   日志
+   ============================================================ */
+
+/* 日志是追加式的：只把新增的行拼上去，不要每次全量重写（大段文本重排很卡）。
+   日志满了以后较早的行会被后端丢掉，DOM 攒太多时整体重建一次 */
+let logTail = '';      // 上次渲染的最后一行，作为追加锚点
+let logRendered = 0;   // DOM 里大约累积了多少行
+
+function setLog(lines){
+
+    const log = $('log');
+    lines = lines || [];
+
+    const nearBottom =
+        log.scrollHeight -
+        log.scrollTop -
+        log.clientHeight < 20;
+
+    if(!lines.length){
+        if(logRendered){
+            log.textContent = '';
+            logTail = '';
+            logRendered = 0;
+        }
+        return;
+    }
+
+    // 从尾部找上次的最后一行：它之后的就是新增内容
+    let start = -1;
+    if(logTail){
+        for(let i = lines.length - 1; i >= 0 && i >= lines.length - 400; i--){
+            if(lines[i] === logTail){
+                start = i + 1;
+                break;
+            }
+        }
+    }
+
+    if(start < 0 || logRendered > 1400){
+        // 对不上锚点（页面刚打开/换了内容）或 DOM 攒太多：整体重建
+        log.textContent = lines.join('\n');
+        logRendered = lines.length;
+    }else if(start < lines.length){
+        logRendered += lines.length - start;
+        log.appendChild(document.createTextNode('\n' + lines.slice(start).join('\n')));
+    }
+
+    logTail = lines[lines.length - 1];
+
+    if(nearBottom){
+        log.scrollTop = log.scrollHeight;
+    }
+}
+
+
+/* ============================================================
+   状态刷新
+   ============================================================ */
+
+async function refreshStatus(){
+
+    try{
+
+        const r = await fetch(
+            '/api/status',
+            {
+                cache:'no-store'
+            }
+        );
+
+        const d = await r.json();
+
+        setLog(d.logs);
+
+        $('status').textContent =
+            d.loggedIn
+                ? '已登录'
+                : (loginPolling ? '登录处理中' : '未登录');
+
+        $('start').disabled = d.busy;
+
+        $('login').disabled =
+            d.busy || loginPolling;
+
+
+        if(d.loggedIn){
+
+            loginPolling = false;
+
+            $('qr').classList.remove('show');
+
+            $('qrimg').src = '';
+
+            lastQRVisible = false;
+        }
+
+    }catch(e){}
+}
+
+
+/* ============================================================
+   登录
+   ============================================================ */
+
+async function login(){
+
+    if(loginPolling){
+        return;
+    }
+
+    loginPolling = true;
+
+    $('qr').classList.add('show');
+
+    $('qrhint').textContent =
+        '正在生成二维码...';
+
+    $('login').disabled = true;
+
+
+    try{
+
+        const r = await fetch(
+            '/api/login/start',
+            {
+                method:'POST'
+            }
+        );
+
+        const d = await r.json();
+
+        if(!d.ok){
+
+            alert(
+                d.message ||
+                '登录失败，请稍后重试'
+            );
+
+            loginPolling = false;
+
+            return;
+        }
+
+    }catch(e){
+
+        alert('无法连接本地服务');
+
+        loginPolling = false;
+
+        return;
+    }
+
+
+    let n = 0;
+
+    const timer = setInterval(
+        async () => {
+
+            n++;
+
+            try{
+
+                const r = await fetch(
+                    '/api/status',
+                    {
+                        cache:'no-store'
+                    }
+                );
+
+                const d = await r.json();
+
+                setLog(d.logs);
+
+
+                if(!lastQRVisible && n >= 2){
+
+                    $('qrimg').src =
+                        '/api/login/qr?t=' +
+                        Date.now();
+
+                    $('qrhint').textContent =
+                        '请扫码并确认';
+
+                    lastQRVisible = true;
+                }
+
+
+                if(d.loggedIn){
+
+                    clearInterval(timer);
+
+                    loginPolling = false;
+
+                    $('qr').classList.remove('show');
+
+                    $('qrimg').src = '';
+
+                    lastQRVisible = false;
+
+                }else if(!d.busy){
+
+                    clearInterval(timer);
+
+                    loginPolling = false;
+                }
+
+            }catch(e){}
+
+
+            if(n > 300){
+
+                clearInterval(timer);
+
+                loginPolling = false;
+            }
+
+        },
+        1000
+    );
+}
+
+
+/* ============================================================
+   抽奖
+   ============================================================ */
+
+async function lottery(){
+
+    window.__runClickAt = Date.now();
+
+    const payload = {
+
+        bv:$('bv').value,
+
+        requireLevel:
+            $('levelCheck').checked,
+
+        minLevel:
+            Number($('level').value),
+
+        requireMedal:
+            $('medalCheck').checked,
+
+        minMedalLevel:
+            Number($('medal').value),
+
+        excludeHiddenList:
+            $('excludeHiddenList').checked,
+
+        includeSubComments:
+            $('subCommentCheck').checked,
+
+        drawCount:
+            Number($('count').value)
+    };
+
+
+    try{
+
+        const r = await fetch(
+            '/api/lottery',
+            {
+                method:'POST',
+                headers:{
+                    'Content-Type':
+                        'application/json'
+                },
+                body:
+                    JSON.stringify(payload)
+            }
+        );
+
+        const d = await r.json();
+
+        if(!d.ok){
+
+            alert(
+                d.message ||
+                '抽奖任务未启动'
+            );
+
+        } else {
+
+            window.__busyDrawing = true;
+
+            resetViz();
+
+            startViz();
+
+            refreshResult();
+        }
+
+    }catch(e){
+
+        alert('无法连接本地服务');
+    }
+}
+
+
+/* ============================================================
+   退出
+   ============================================================ */
+
+async function shutdown(){
+
+    if(
+        !confirm(
+            '确定退出 BiliLottery？'
+        )
+    ){
+        return;
+    }
+
+    try{
+
+        await fetch(
+            '/api/shutdown',
+            {
+                method:'POST'
+            }
+        );
+
+    }catch(e){}
+
+
+    document.body.innerHTML =
+        '<div style="' +
+        'font-family:Microsoft YaHei;' +
+        'text-align:center;' +
+        'margin-top:120px;' +
+        'color:var(--muted)' +
+        '">' +
+        '程序已退出，可以关闭此页面。' +
+        '</div>';
+}
+
+
+/* ============================================================
+   可视化结果
+   ============================================================ */
+
+function esc(s){
+    return String(s == null ? '' : s).replace(
+        /[&<>"']/g,
+        c => ({
+            '&':'&amp;',
+            '<':'&lt;',
+            '>':'&gt;',
+            '"':'&quot;',
+            "'":'&#39;'
+        }[c])
+    );
+}
+
+/* 头像统一走本地代理：/api/avatar
+   - 由后端带正确的 Referer 去 B 站图片 CDN 取图，避免防盗链导致的 403（裂图）
+   - 后端取不到时会返回按昵称首字生成的 SVG 占位图
+   - 头像为空时同样返回占位图，不会再出现 src="" 的裂图 */
+function avatarSrc(rawUrl, name){
+    return '/api/avatar?u=' +
+        encodeURIComponent(String(rawUrl || '').trim()) +
+        '&n=' +
+        encodeURIComponent(String(name || '').trim());
+}
+
+/* 用户个人主页地址：https://space.bilibili.com/<UID>
+   UID 非法（非正整数）时返回空串，表示不可跳转 */
+function userSpaceUrl(uid){
+    const id = String(uid == null ? '' : uid).trim();
+    if(!/^[0-9]+$/.test(id) || Number(id) <= 0){
+        return '';
+    }
+    return 'https://space.bilibili.com/' + id;
+}
+
+/* 把头像包进可点击链接；没有有效 UID 时原样返回头像标签 */
+function wrapAvatarWithLink(imgHtml, uid, name){
+    const url = userSpaceUrl(uid);
+    if(!url){
+        return imgHtml;
+    }
+    return (
+        '<a class="avatar-link" href="' + esc(url) + '"' +
+            ' target="_blank" rel="noopener noreferrer"' +
+            ' title="打开 ' + esc(String(name || '').trim() || '该用户') + ' 的主页">' +
+            imgHtml +
+        '</a>'
+    );
+}
+
+let lastResultKey = '';
+
+async function refreshResult(){
+
+    try{
+
+        const r = await fetch(
+            '/api/result',
+            {
+                cache:'no-store'
+            }
+        );
+
+        const d = await r.json();
+
+        // 结果没变化就不重绘，避免每秒重建 <img> 导致头像反复闪烁/重新请求
+        const key =
+            JSON.stringify(d) +
+            (window.__busyDrawing ? '|busy' : '');
+
+        if(key === lastResultKey){
+            return;
+        }
+
+        lastResultKey = key;
+
+        renderResult(d);
+
+    }catch(e){}
+}
+
+/* 中奖名单排序：
+   按评论字数升序排列，让高度相近的卡片聚在一起，减少网格里的大片空白；
+   字数相同时仍按候选池内的顺序（稳定排序），尽量保留原来的相对关系 */
+function orderWinnersByPool(list){
+    if(list.length < 2){
+        return list;
+    }
+
+    const lenOf = function(win){
+        return String(win.content || '').length;
+    };
+
+    const rank = function(win){
+        const i = vizPoolUidIndex.get(String(win.uid));
+        return typeof i === 'number' ? i : Number.MAX_SAFE_INTEGER;
+    };
+
+    return list.slice().sort(function(a, b){
+        const la = lenOf(a);
+        const lb = lenOf(b);
+        if(la !== lb){
+            return la - lb;
+        }
+        return rank(a) - rank(b);
+    });
+}
+
+function renderResult(d){
+
+    const w = $('winners');
+    const state = $('poolState');
+
+    const done = !!(d && d.done);
+
+    // 结果可能是上一轮残留的：只有本轮进度已经到 done 才算数，
+    // 否则新一轮刚开始就会用上一轮的名单开局
+    const mine = vizStage === 'done';
+
+    // 本轮结果刚就绪：先在候选池里播抽奖动效，动效期间不揭晓名单
+    if(done && mine && !vizDrawStarted && window.__busyDrawing){
+        vizDrawStarted = true;
+        playPoolDraw(d.winners || []);
+        lastResultKey = '';
+    }
+
+    if(!done || !mine || vizDrawing){
+
+        w.innerHTML = '';
+
+        if(state){
+            state.textContent = '';
+        }
+
+        return;
+    }
+
+    const winners = orderWinnersByPool(d.winners || []);
+
+    if(!vizListShown){
+        vizListShown = true;
+
+        if(vizListTimer){
+            clearTimeout(vizListTimer);
+        }
+
+        // 本轮抽奖动效刚跑完：播“头像排序 + 评论展开”的大轴；
+        // 其余情况（刷新接上、减弱动效）仍然是直接张榜
+        const revealable = winners.length && vizRevealArmed && !prefersReducedMotion();
+        vizListTimer = setTimeout(function(){
+            vizListTimer = null;
+
+            if(revealable){
+                playWinnerReveal(winners);
+                return;
+            }
+
+            // 名单只展示中奖结果：把候选池整块收掉
+            const delay = (winners.length && clearPoolForWinners()) ? 340 : 0;
+            vizListTimer = setTimeout(function(){
+                vizListTimer = null;
+                showWinnerList(winners);
+            }, delay);
+        }, 140);
+    }
+}
+
+/* 渲染名单内容（只负责内容与自适应系数），返回名单容器 */
+function renderWinnerListBody(winners){
+    const w = $('winners');
+    if(!w){
+        return null;
+    }
+
+    // 评论字号随总字数自适应：评论越多整体越小，保证都塞得下
+    const totalChars = commentTotalChars(winners);
+
+    // 中奖人数越多，整张名单等比收紧，尽量让所有结果一屏放得下
+    const wScale = winnerScale(winners.length);
+    w.style.setProperty('--w-scale', String(wScale));
+
+    w.innerHTML = winners.length
+        ? winners.map(function(win, idx){
+            return renderWinner(win, idx, totalChars, wScale);
+        }).join('')
+        : '<div class="muted" style="grid-column:1/-1">本轮未产生中奖结果</div>';
+
+    return w;
+}
+
+/* 放大候选池窗口（最多两倍，且不超过可用宽度），返回实际倍数。
+   宽高一律用 offsetWidth/offsetHeight（布局尺寸）：getBoundingClientRect
+   会带上抽奖期已经加上的倍数，拿它算会得到偏小的值、反而把窗口缩回去 */
+function applyWinnerZoom(el){
+    if(!el || el.hidden){
+        return 1;
+    }
+
+    const avail = document.documentElement.clientWidth - 20;
+    const baseW = Math.max(1, el.offsetWidth);
+    const baseH = Math.max(1, el.offsetHeight);
+    const scale = Math.min(2, Math.max(1, avail / baseW));
+    if(scale > 1.02){
+        // 一次快速的回弹放大：使用带过冲的曲线（冲到略大于最终尺寸再收住）。
+        // 时序约束：开奖大轴在 +320ms 重量高度、+560ms 就要求坐标稳定，
+        // 所以这里必须比 560ms 短——0.44s 收住。
+        // 过冲取"刚好不超出可用宽度"的强度：最终已是约 87% 宽，
+        // 所以这里最多只能给到 ~15%（再多就会短暂顶出屏幕被裁掉）
+        const bounce = 'cubic-bezier(.22, 1.6, .36, 1)';
+        const half = ((baseH * (scale - 1)) / 2).toFixed(1) + 'px';
+        el.style.transformOrigin = 'center center';
+        el.style.transition =
+            'transform .44s ' + bounce +
+            ', margin-top .44s ' + bounce +
+            ', margin-bottom .44s ' + bounce;
+        el.style.transform = 'scale(' + scale.toFixed(3) + ')';
+        // transform 不改变布局占位：上下各补一半——渲染出来的上边缘不动，
+        // 下面也不会和后面的内容重叠
+        el.style.marginTop = half;
+        el.style.marginBottom = half;
+    }
+    return scale;
+}
+
+/* 张榜（直接展示路径：刷新接上 / 减弱动效 / 降级） */
+function showWinnerList(winners){
+    const w = renderWinnerListBody(winners);
+    const state = $('poolState');
+    if(!w){
+        return;
+    }
+
+    w.classList.remove('pre');
+
+    // 名单逐张入场
+    w.classList.add('reveal');
+    setTimeout(function(){
+        w.classList.remove('reveal');
+    }, 1800);
+
+    if(state){
+        state.textContent = '· 已开奖';
+    }
+
+    const el = $('poolCard');
+    if(!el || el.hidden){
+        return;
+    }
+
+    const scale = applyWinnerZoom(el);
+
+    // 窗口（含名单）重新拖到视口中央；放大后仍比视口高时改为顶部对齐
+    focusPanel('poolCard');
+    const tall = el.offsetHeight * Math.max(1, scale) > window.innerHeight * 0.92;
+    focusScrollTo(el, tall ? 'top' : '');
+}
+
+/* 开奖大轴：抽奖定格之后——
+   1) 中奖头像按名单次序（评论长度）沿非线性曲线滑到各自的位置；
+   2) 未中奖头像淡出、整个候选池收起、窗口放大并聚焦；
+   3) 全部落位后展开头像对应的评论，最终与中奖名单完全一致 */
+function playWinnerReveal(winners){
+    const card = $('poolCard');
+    const w = $('winners');
+    const layer = $('revealLayer');
+    const ordered = orderWinnersByPool(winners || []);
+
+    // 环境对不上（比如刷新恢复时没有池子可飞）就退回直接张榜
+    if(!card || card.hidden || !w || !layer || !ordered.length){
+        showWinnerList(winners);
+        return;
+    }
+
+    // 0) 起点：池子里还亮着的中奖头像
+    const wanted = new Set();
+    const indexByUid = new Map();
+    ordered.forEach(function(win, idx){
+        const uid = String(win.uid);
+        wanted.add(uid);
+        indexByUid.set(uid, idx);
+    });
+
+    const starts = [];
+    poolBubbles().forEach(function(b){
+        if(wanted.has(b.dataset.uid)){
+            starts.push({el: b, rect: b.getBoundingClientRect(), uid: b.dataset.uid});
+        }
+    });
+    if(!starts.length){
+        showWinnerList(winners);
+        return;
+    }
+
+    // 1) 先渲染名单（预备态：占好位置但整体不可见），后面的量取才有参照
+    renderWinnerListBody(ordered);
+    w.classList.add('pre');
+
+    // 2) 中奖头像迁到飞行层：锁住起点与当前尺寸，保留定格时的光晕
+    starts.forEach(function(f){
+        const b = f.el;
+        const r = f.rect;
+        b.style.boxShadow = getComputedStyle(b).boxShadow;
+        b.style.width = r.width + 'px';
+        b.style.height = r.height + 'px';
+        b.style.position = 'fixed';
+        b.style.left = r.left + 'px';
+        b.style.top = r.top + 'px';
+        b.style.transition = 'none';
+        b.style.animation = 'none';
+        b.style.transform = 'translate(0, 0) scale(1)';
+        layer.appendChild(b);
+    });
+
+    // 3) 未中奖头像淡出，随后收起池子、把位置让给名单
+    poolBubbles().forEach(function(b){
+        b.style.transition = 'opacity .3s ease, transform .3s ease';
+        b.style.opacity = '0';
+        b.style.transform = 'scale(.6)';
+    });
+
+    // 4) 池子收起是瞬间的（display:none），+320ms 留给未中奖头像淡出。
+    //    必须等它从布局里消失再放大：否则放大的是“池子 + 名单”的整块高度，
+    //    会先胀成一个比屏幕还大的框、等池子收掉再缩回来（看着就是猛地一胀又弹回）。
+    //    offsetHeight 是布局高度，不受放大过渡影响。
+    focusPanel('poolCard');
+    const t0 = performance.now();
+    setTimeout(function(){
+        const pool = $('pool');
+        if(pool){
+            pool.classList.add('cleared');
+        }
+
+        // 池子没了，卡片只剩名单：这时放大，放大的才是最终那块内容
+        const layoutH = card.offsetHeight;
+        const zoom = applyWinnerZoom(card);
+
+        // 装得下就居中；真的比视口还高才顶部对齐
+        const tall = layoutH * Math.max(1, zoom) > window.innerHeight * 0.92;
+        followFocus(card, VIZ_SCROLL_MS, tall ? 'top' : '');
+    }, 320);
+
+    // 6) 等放大过渡与聚焦滚动都结束、坐标稳定后，再让头像起飞
+    let tries = 0;
+    (function waitReady(){
+        tries++;
+        if(tries < 100 && (performance.now() - t0 < 560 || vizScrollRAF)){
+            setTimeout(waitReady, 60);
+            return;
+        }
+
+        starts.forEach(function(f){
+            const idx = indexByUid.has(f.uid) ? indexByUid.get(f.uid) : -1;
+            const cell = idx >= 0 ? w.children[idx] : null;
+            const target = cell
+                ? (cell.querySelector('.avatar-link') || cell.querySelector('.avatar'))
+                : null;
+            if(!target){
+                f.el.style.transition = 'opacity .5s ease';
+                f.el.style.opacity = '0';
+                return;
+            }
+
+            const r = target.getBoundingClientRect();
+            const k = r.width / Math.max(1, f.rect.width);
+            f.el.style.transformOrigin = 'top left';
+            f.el.style.transition = 'transform .72s cubic-bezier(.4, 1.45, .5, 1)';
+            f.el.style.transitionDelay = (Math.max(0, idx) * 70) + 'ms';
+            f.el.style.transform =
+                'translate(' + (r.left - f.rect.left) + 'px, ' +
+                (r.top - f.rect.top) + 'px) scale(' + k.toFixed(4) + ')';
+        });
+
+        // 7) 全部落位：清掉飞行层，露出名单头像并逐一展开正文
+        const total = 800 + Math.max(0, starts.length - 1) * 70 + 90;
+        setTimeout(function(){
+            layer.textContent = '';
+
+            w.classList.remove('pre');
+
+            const state = $('poolState');
+            if(state){
+                state.textContent = '· 已开奖';
+            }
+        }, total);
+    })();
+}
+
+/* 评论自适应字号 ------------------------------------------------------------
+   总字数越多，整体字号越小；单条特别长的再额外收一档，
+   这样开奖后所有评论都能尽量完整、不等高地展示出来 */
+const COMMENT_FONT_PX = 13;
+const COMMENT_MIN_SCALE = 0.62;
+
+function commentTotalChars(winners){
+    let total = 0;
+    (winners || []).forEach(function(win){
+        total += String(win.content || '').length;
+    });
+    return total;
+}
+
+function commentScale(totalChars, len){
+    let scale = 1;
+
+    // 以 320 字为基准，字数越多缩得越多
+    if(totalChars > 320){
+        scale = Math.pow(320 / totalChars, 0.12);
+    }
+
+    // 单条过长（>160 字）再额外收一点，避免个别长评论把卡片撑爆
+    if(len > 160){
+        scale *= Math.pow(160 / len, 0.12);
+    }
+
+    if(scale > 1){
+        scale = 1;
+    }
+    if(scale < COMMENT_MIN_SCALE){
+        scale = COMMENT_MIN_SCALE;
+    }
+    return scale;
+}
+
+/* 中奖人数越多，单个结果整体越小（0.64 ~ 1），尽量把所有中奖者都放进展台 */
+function winnerScale(n){
+    if(n <= 4){
+        return 1;
+    }
+    if(n <= 6){
+        return 0.9;
+    }
+    if(n <= 9){
+        return 0.8;
+    }
+    if(n <= 12){
+        return 0.72;
+    }
+    return 0.64;
+}
+
+function avatarFallback(name){
+    const text = String(name || '?').trim();
+    const ch = text ? text.slice(0, 1) : '?';
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128">' +
+        '<rect width="128" height="128" rx="64" fill="#6b7280"/>' +
+        '<text x="64" y="78" text-anchor="middle" font-size="58" fill="white" font-family="Arial,sans-serif">' +
+        escapeXml(ch) + '</text></svg>';
+    return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+}
+
+function escapeXml(value){
+    return String(value).replace(/[&<>"']/g, ch => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&apos;'
+    }[ch]));
+}
+
+// 内联 onerror 在全局作用域执行，只能调用全局函数；
+// 显式挂到 window 上，避免作用域问题导致回退头像失效。
+window.avatarFallback = avatarFallback;
+
+function renderWinner(win, idx, totalChars, wScale){
+
+    const rank = idx + 1;
+    const avatar = avatarSrc(win.avatar, win.name);
+    const name = esc(win.name || '');
+    const commentText = String(win.content || '（无评论）');
+    const comment = esc(commentText);
+
+    // 按（总字数 + 本条字数 + 中奖人数）算出的缩放比，够小才写内联样式
+    const cScale = commentScale(totalChars, commentText.length) * (wScale || 1);
+    const commentStyle =
+        cScale < 0.995
+            ? ' style="font-size:' + (COMMENT_FONT_PX * cScale).toFixed(1) +
+                'px;line-height:1.45"'
+            : '';
+
+    // 点击头像跳转到该中奖用户的 B 站个人主页
+    const avatarHtml = wrapAvatarWithLink(
+        '<img class="avatar" src="' +
+            esc(avatar) + '"' +
+            ' data-name="' + name + '"' +
+            ' alt="' + name + '的头像" onerror="this.onerror=null;this.src=avatarFallback(this.dataset.name)">',
+        win.uid,
+        win.name
+    );
+
+    let medal = '';
+
+    if(win.medalName){
+
+        medal =
+            '<span class="badge">' +
+                esc(win.medalName) +
+                ' Lv.' + esc(win.medalLevel) +
+            '</span>';
+    }else{
+
+        medal =
+            '<span class="muted" style="font-size:calc(12px * var(--w-scale,1))">未要求粉丝团灯牌</span>';
+    }
+
+    return (
+        '<div class="winner">' +
+
+            '<span class="rank">' + rank + '</span>' +
+
+            avatarHtml +
+
+            '<div class="win-body">' +
+
+                '<div style="font-weight:600;word-break:break-word">' +
+                    name +
+                    ' <span class="muted" style="font-size:calc(12px * var(--w-scale,1));font-weight:400">Lv.' + esc(win.level) + '</span>' +
+                '</div>' +
+
+                '<div class="video-meta" style="margin-top:2px">' +
+                    'UID：' + esc(win.uid) +
+                '</div>' +
+
+                '<div style="margin-top:6px">' + medal + '</div>' +
+
+                '<div class="comment"' + commentStyle + '>' + comment + '</div>' +
+
+            '</div>' +
+
+        '</div>'
+    );
+}
+
+
+/* ============================================================
+   抓取 / 筛选 实况可视化
+   - 数据来自 /api/progress（抽出奖时高频轮询，结束后停止）
+   - 所有动画只依赖 CSS class，节点按增量追加，避免整块重绘导致闪烁
+   ============================================================ */
+
+const VIZ_STAGES = ['video','comments','filter','draw'];
+
+const VIZ_RING_LEN = 326.73;   // 2 * PI * 52
+const VIZ_CHIP_MAX = 24;       // 筛选面板同时显示的用户数
+const VIZ_POOL_MAX = 120;      // 候选池最多渲染的气泡数
+const VIZ_POLL_MS = 400;       // 抓取/筛选期间的轮询间隔
+const VIZ_DRAW_MS = 2400;      // 候选池里随机高亮的时长
+
+let vizTimer = null;
+let vizLastStage = '';
+let vizChipSeqs = new Set();
+let vizPoolUids = new Set();
+let vizPoolExtra = 0;
+let vizVideoKey = '';
+let vizDrawCount = 0;   // 本轮抽奖人数（中奖名额）
+let vizFocusId = '';    // 当前被聚焦（居中放大）的窗口 id
+let vizStage = '';      // 最近一次读到的进度阶段（用来判定结果是否属于本轮）
+
+// 开奖动效状态
+let vizDrawStarted = false;        // 本轮是否已经播过抽奖动效
+let vizDrawing = false;            // 动效播放中（此期间不揭晓名单）
+let vizDrawTimer = null;           // 高亮更替的定时器
+let vizDrawWinTimer = null;        // 定格/收尾定时器
+let vizPoolUidIndex = new Map();   // 气泡顺序：uid -> 下标（名单排序用）
+let vizListShown = false;          // 本轮名单是否已经张榜
+let vizRevealArmed = false;        // 本轮抽奖动效是否刚跑完（决定用大轴还是直接张榜）
+let vizListTimer = null;           // 张榜前的退场等待
+
+
+function vizCard(){
+    return $('vizCard');
+}
+
+function vizShow(){
+    const card = vizCard();
+    if(card && card.hidden){
+        card.hidden = false;
+    }
+}
+
+/* ============================================================
+   阶段聚焦
+   - 执行到某一步时，把对应窗口滚到视口中间并适度放大
+   - 只在“聚焦目标变化”时滚动，避免每 400ms 轮询把页面拽来拽去
+   ============================================================ */
+
+// 步骤 → 聚焦窗口
+const VIZ_FOCUS_BY_STAGE = {
+    video:    'crawlPanel',
+    comments: 'crawlPanel',
+    filter:   'filterPanel',
+    draw:     'poolCard'
+};
+
+const VIZ_FOCUS_IDS = ['crawlPanel','filterPanel','poolCard'];
+
+/* 聚焦居中：自己驱动滚动，做成平滑的“拖过去”，
+   并且每一帧都按窗口的当前位置重算目标——
+   这样布局在中途变化（收起候选池、滚动墙出现）也不会突然跳一下 */
+
+const VIZ_SCROLL_MS = 700;    // 平滑拖动的基准时长
+let vizScrollRAF = null;
+
+function cancelFocusScroll(){
+    if(vizScrollRAF){
+        cancelAnimationFrame(vizScrollRAF);
+        vizScrollRAF = null;
+    }
+}
+
+function focusScrollTo(el, mode){
+    cancelFocusScroll();
+
+    const offset = function(){
+        const rect = el.getBoundingClientRect();
+        if(mode === 'top'){
+            // 窗口比视口还高：顶部对齐（留点边距），尽量把整块内容都露出来
+            return rect.top - 20;
+        }
+        return rect.top + rect.height / 2 - window.innerHeight / 2;
+    };
+
+    // 减弱动效：不拖动，直接落位
+    if(prefersReducedMotion()){
+        window.scrollBy(0, offset());
+        return;
+    }
+
+    const start = performance.now();
+
+    function step(now){
+        // 每帧重新量：元素被布局挪动时，滚动会平滑跟上去
+        const delta = offset();
+        const k = Math.min(1, (now - start) / VIZ_SCROLL_MS);
+
+        if(Math.abs(delta) < 1 || k >= 1){
+            window.scrollBy(0, delta);
+            vizScrollRAF = null;
+            return;
+        }
+
+        // smoothstep：起步柔、中段快、收尾慢，像手动拖过去
+        const ease = k * k * (3 - 2 * k);
+        window.scrollBy(0, delta * Math.min(0.5, 0.02 + ease * 0.48));
+
+        vizScrollRAF = requestAnimationFrame(step);
+    }
+
+    vizScrollRAF = requestAnimationFrame(step);
+}
+
+/* 放大过程中一直让元素保持居中（mode='top' 时改为顶部对齐）：
+   每帧重算一次，元素长高多少就跟着滚多少，不会出现“先偏着长、长完才归位”。
+   复用 vizScrollRAF：用户滚轮/触摸会取消它，开奖大轴等滚动结束也认它 */
+function followFocus(el, ms, mode){
+    if(!el){
+        return;
+    }
+    cancelFocusScroll();
+
+    const target = function(){
+        const rect = el.getBoundingClientRect();
+        if(mode === 'top'){
+            // 窗口比视口还高：顶部对齐（留点边距），尽量把整块内容都露出来
+            return rect.top - 20;
+        }
+        return rect.top + rect.height / 2 - window.innerHeight / 2;
+    };
+
+    if(prefersReducedMotion()){
+        window.scrollBy(0, target());
+        return;
+    }
+
+    const until = performance.now() + ms;
+
+    function step(now){
+        const delta = target();
+        if(Math.abs(delta) < 0.5 || now >= until){
+            window.scrollBy(0, delta);
+            vizScrollRAF = null;
+            return;
+        }
+        window.scrollBy(0, delta * 0.35);
+        vizScrollRAF = requestAnimationFrame(step);
+    }
+
+    vizScrollRAF = requestAnimationFrame(step);
+}
+
+// 用户自己滚页面时，别跟他抢
+window.addEventListener('wheel', cancelFocusScroll, {passive:true});
+window.addEventListener('touchstart', cancelFocusScroll, {passive:true});
+
+function focusPanel(id){
+    if(!id || id === vizFocusId){
+        return;
+    }
+    vizFocusId = id;
+
+    VIZ_FOCUS_IDS.forEach(function(key){
+        const el = $(key);
+        if(el){
+            el.classList.toggle('stage-focus', key === id);
+        }
+    });
+
+    scheduleDmAvoid();
+
+    const el = $(id);
+    if(!el || el.hidden){
+        return;
+    }
+
+    focusScrollTo(el);
+}
+
+function clearFocusPanel(){
+    vizFocusId = '';
+    VIZ_FOCUS_IDS.forEach(function(key){
+        const el = $(key);
+        if(el){
+            el.classList.remove('stage-focus');
+        }
+    });
+    scheduleDmAvoid();
+}
+
+/* 数字滚动 */
+function setNumber(el, value){
+    if(!el){
+        return;
+    }
+    const to = Number(value) || 0;
+    const from = Number(el.dataset.v || 0);
+    if(from === to){
+        const text = String(to);
+        if(el.textContent !== text){
+            el.textContent = text;
+        }
+        return;
+    }
+    el.dataset.v = String(to);
+
+    // 上一轮滚动还没播完就重启：先取消，避免多个 rAF 抢着写同一个节点
+    if(el.__numRaf){
+        cancelAnimationFrame(el.__numRaf);
+        el.__numRaf = 0;
+    }
+
+    const start = performance.now();
+    const dur = Math.min(600, 200 + Math.abs(to - from) * 6);
+
+    function step(now){
+        const k = Math.min(1, (now - start) / dur);
+        const eased = 1 - Math.pow(1 - k, 3);
+        el.textContent = String(Math.round(from + (to - from) * eased));
+        if(k < 1){
+            el.__numRaf = requestAnimationFrame(step);
+        }else{
+            el.__numRaf = 0;
+        }
+    }
+    el.__numRaf = requestAnimationFrame(step);
+}
+
+/* 清掉抽奖/开奖时给候选池卡片加的临时放大（缩放、过渡与布局补偿） */
+function resetPoolCardZoom(){
+    const card = $('poolCard');
+    if(!card){
+        return;
+    }
+    card.style.transition = '';
+    card.style.transform = '';
+    card.style.transformOrigin = '';
+    card.style.marginTop = '';
+    card.style.marginBottom = '';
+}
+
+/* 开始新一轮：清空上一轮的展示状态 */
+function resetViz(){
+    vizLastStage = '';
+    vizChipSeqs = new Set();
+    vizPoolUids = new Set();
+    vizPoolExtra = 0;
+    vizVideoKey = '';
+    vizDrawCount = 0;
+    clearFocusPanel();
+    resetDanmu();
+
+    stopPoolDraw();
+    vizDrawStarted = false;
+    vizDrawing = false;
+    vizPoolUidIndex = new Map();
+    vizStage = '';
+
+    vizPoolMorphed = false;
+    vizMorphSettled = true;
+    vizMorphWaiters = [];
+    if(vizMorphTimer){
+        clearTimeout(vizMorphTimer);
+        vizMorphTimer = null;
+    }
+    if(vizListTimer){
+        clearTimeout(vizListTimer);
+        vizListTimer = null;
+    }
+    vizListShown = false;
+    vizRevealArmed = false;
+
+    const grid = $('scanGrid');
+    if(grid){
+        grid.innerHTML = '';
+    }
+    const pool = $('pool');
+    if(pool){
+        pool.innerHTML = '';
+        pool.classList.remove('drawing');
+        pool.classList.remove('locked');
+        pool.classList.remove('loose');
+        pool.classList.remove('clearing');
+        pool.classList.remove('cleared');
+        pool.style.removeProperty('--bub-size');
+        pool.style.removeProperty('--bub-gap');
+    }
+    const winners = $('winners');
+    if(winners){
+        winners.innerHTML = '';
+        winners.classList.remove('reveal');
+        winners.classList.remove('pre');
+    }
+    const revealLayer = $('revealLayer');
+    if(revealLayer){
+        revealLayer.textContent = '';
+    }
+    const state = $('poolState');
+    if(state){
+        state.textContent = '';
+    }
+    const stat = $('poolStat');
+    if(stat){
+        stat.textContent = '暂无候选人';
+    }
+    const poolCard = $('poolCard');
+    if(poolCard){
+        poolCard.hidden = true;
+    }
+    resetPoolCardZoom();
+    const bar = $('ringBar');
+    if(bar){
+        bar.style.strokeDashoffset = String(VIZ_RING_LEN);
+    }
+    ['crawlCount','crawlTotal','crawlSub','crawlUsers'].forEach(function(id){
+        const el = $(id);
+        if(el){
+            el.dataset.v = '0';
+        }
+    });
+    const count = $('crawlCount');
+    if(count){
+        count.textContent = '0';
+    }
+}
+
+/* 步骤条 */
+function renderSteps(stage, running){
+    const failed = stage === 'failed';
+    if(stage !== 'idle' && stage !== 'done' && stage !== 'failed'){
+        vizLastStage = stage;
+    }
+    // 失败时若还没观察到运行中的阶段（例如开局就失败），至少把第一步标红
+    const cur = failed ? (vizLastStage || VIZ_STAGES[0]) : stage;
+    const curIdx = VIZ_STAGES.indexOf(cur);
+
+    const steps = document.querySelectorAll('#vizSteps .step');
+    for(let i = 0; i < steps.length; i++){
+        const el = steps[i];
+        const si = VIZ_STAGES.indexOf(el.dataset.stage);
+        const active = running && si === curIdx;
+        const failedHere = failed && si === curIdx;
+        const done = stage === 'done' || (curIdx >= 0 && si < curIdx);
+
+        el.classList.toggle('active', active);
+        el.classList.toggle('failed', failedHere);
+        el.classList.toggle('done', done && !active && !failedHere);
+
+        const dot = el.querySelector('.dot');
+        if(dot){
+            dot.textContent = (done && !active && !failedHere) ? '✓' : String(si + 1);
+        }
+    }
+}
+
+/* ============================================================
+   评论弹幕（canvas）：每抓到一条评论，就从右侧滚过一道
+   - 头像 + 昵称 + UID + 评论内容（按内容自然换行，不限行数）
+   - 每条气泡先在一张离屏 canvas 上烘焙成位图（玻璃底、圆角、阴影、头像、
+     文字排版全在里面），之后每帧只做一次 drawImage：
+     滚动期间没有布局计算，也没有 backdrop-filter 那种逐帧重算的合成开销。
+     这是它的核心优势——几百条同屏也不会掉帧
+   - 位图按「设备像素 × 该条的随机缩放」烘焙，贴图时 1:1，文字不会被重采样发虚
+   - 轨道轮转发布：同一轨道上一条的“尾巴”离开右边缘后才再用
+   - 爬取速度远快于弹幕速度，所以排队发布并只保留最近的若干条
+   - 限制：canvas 采样不到背后的页面内容，磨砂玻璃的 backdrop-filter 用同一套
+     渐变/边框/内高光近似（气泡整体不透明度 .92，多数时候背后是纯页面底色）
+   ============================================================ */
+
+const VIZ_DM_LANE_H = 92;      // 每条轨道的高度（占用条数按气泡高度算）
+const VIZ_DM_TOP_PAD = 16;     // 最顶端弹幕与屏幕上缘的间隔
+const VIZ_DM_SPEED = 380;      // 每秒移动多少像素（兼顾“拖影感”与排空速度）
+const VIZ_DM_QUEUE_MAX = 400;  // 待发布队列上限（尽量不丢弹幕）
+const VIZ_DM_TICK_MS = 90;     // 发布节流
+const VIZ_DM_PER_TICK = 3;     // 每拍基准发布数（积压时 dmPump 会临时放宽到 6）
+const VIZ_DM_TAIL_PX = 140;    // 滚到底后额外多走一段：气泡有阴影，
+                               // 不留余量就会在屏幕左缘残留一道淡影
+
+/* 气泡排版参数 */
+const VIZ_DM_FONT = '"Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif';
+const VIZ_DM_FACE = 34;        // 一级头像边长
+const VIZ_DM_SUB_FACE = 22;    // 二级头像边长
+const VIZ_DM_SUB_GAP = 6;      // 二级头像与文字之间的间距
+const VIZ_DM_GAP = 8;          // 一级头像与正文之间的间距
+const VIZ_DM_PAD_V = 7;        // 胶囊内边距（上/下/左）
+const VIZ_DM_PAD_R = 14;       // 胶囊内边距（右）
+const VIZ_DM_RADIUS = 17;      // 胶囊圆角
+const VIZ_DM_MAX_W = 840;      // 气泡最大宽度（另受 92vw 限制）
+const VIZ_DM_MIN_W = 200;      // 气泡最小宽度
+const VIZ_DM_SHADOW_PAD = 14;  // 位图给阴影留的边距
+const VIZ_DM_BAKE_MAX = 2200000;  // 单张位图的设备像素上限：超大评论自动降采样，防内存尖峰
+const VIZ_DM_IMG_MAX = 400;    // 头像位图缓存上限
+
+/* 字号 / 行高：正文 17px、二级 14px，行高统一 1.35 */
+const VIZ_DM_FONT_17 = '400 17px ' + VIZ_DM_FONT;
+const VIZ_DM_FONT_17B = '600 17px ' + VIZ_DM_FONT;
+const VIZ_DM_FONT_14 = '400 14px ' + VIZ_DM_FONT;
+const VIZ_DM_FONT_14B = '600 14px ' + VIZ_DM_FONT;
+const VIZ_DM_LINE_17 = 17 * 1.35;
+const VIZ_DM_LINE_14 = 14 * 1.35;
+
+let vizDmSeen = new Set();
+let vizDmQueue = [];
+let vizDmTimer = null;
+let vizDmLanes = [];
+let vizDmWindowOpen = false;   // 只有收集/核对阶段才允许弹幕播放
+let vizDmPending = new Map();  // 排队中的一级弹幕组（rpid → 组），二级评论可挂进去
+
+/* canvas 渲染状态 */
+let dmCanvas = null;
+let dmCtx = null;
+let dmW = 0;                   // 画布逻辑宽高（CSS px）
+let dmH = 0;
+let dmDpr = 1;
+let dmActive = [];             // 正在飞的气泡
+let dmRaf = 0;
+let dmLastTS = 0;
+let dmTheme = null;            // 当前皮肤的取色缓存
+let dmThemeEpoch = 0;          // 换肤后 +1，让烘好的位图失效
+let dmImgEpoch = 0;            // 有头像加载完成/失败后 +1，让位图带真头像重烘
+let dmMeasureCtx = null;
+const dmFontMetrics = new Map();
+const dmImages = new Map();    // 头像位图缓存（url → HTMLImageElement）
+let dmDelivering = 0;          // 正在“投递”进核对面板的弹幕条数（限流用）
+
+/* 轨道数按视口高度铺满整屏（顶部留出间隔） */
+function dmLaneCount(){
+    return Math.max(2, Math.floor((window.innerHeight - VIZ_DM_TOP_PAD) / VIZ_DM_LANE_H));
+}
+
+/* 画布尺寸跟着视口走：位图尺寸乘 DPR（上限 2，再高不值得）。
+   视口尺寸只在这里读一次并缓存，发布弹幕时不再碰布局 */
+function dmResizeCanvas(){
+    dmCanvas = dmCanvas || $('danmuCanvas');
+    if(!dmCanvas){
+        return false;
+    }
+    dmCtx = dmCtx || dmCanvas.getContext('2d');
+    dmW = document.documentElement.clientWidth || window.innerWidth;
+    dmH = window.innerHeight;
+    dmDpr = Math.min(window.devicePixelRatio || 1, 2);
+    dmCanvas.width = Math.round(dmW * dmDpr);
+    dmCanvas.height = Math.round(dmH * dmDpr);
+    dmCanvas.style.width = dmW + 'px';
+    dmCanvas.style.height = dmH + 'px';
+    return true;
+}
+
+/* 取当前皮肤的颜色：canvas 拿不到 CSS 变量，读一次计算样式后缓存 */
+function dmColors(){
+    if(dmTheme){
+        return dmTheme;
+    }
+    const cs = getComputedStyle(document.documentElement);
+    const pick = function(name){
+        return cs.getPropertyValue(name).trim();
+    };
+    dmTheme = {
+        glassA: pick('--dm-glass-a') || 'rgba(255,255,255,.74)',
+        glassB: pick('--dm-glass-b') || 'rgba(255,255,255,.46)',
+        border: pick('--dm-glass-border') || 'rgba(255,255,255,.72)',
+        glow: pick('--dm-glass-glow') || 'rgba(255,255,255,.5)',
+        text: pick('--text') || '#202124',
+        secondary: pick('--secondary') || '#666',
+        muted: pick('--muted') || '#777',
+        codeBg: pick('--code-bg') || '#f1f3f5'
+    };
+    return dmTheme;
+}
+
+/* CSS 的 linear-gradient(150deg,…)：0deg 向上、顺时针为正 → 换算出画布的方向向量 */
+function dmGradient(ctx, x, y, w, h, deg, from, to){
+    const rad = (deg - 90) * Math.PI / 180;
+    const dx = Math.cos(rad);
+    const dy = Math.sin(rad);
+    const len = Math.abs(w * dx) + Math.abs(h * dy);
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const grd = ctx.createLinearGradient(
+        cx - dx * len / 2, cy - dy * len / 2,
+        cx + dx * len / 2, cy + dy * len / 2
+    );
+    grd.addColorStop(0, from);
+    grd.addColorStop(1, to);
+    return grd;
+}
+
+/* 圆角矩形路径（不用 ctx.roundRect，兼容老一点的浏览器内核） */
+function dmRoundRect(ctx, x, y, w, h, r){
+    const rr = Math.max(0, Math.min(r, w / 2, h / 2));
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y);
+    ctx.arcTo(x + w, y, x + w, y + rr, rr);
+    ctx.lineTo(x + w, y + h - rr);
+    ctx.arcTo(x + w, y + h, x + w - rr, y + h, rr);
+    ctx.lineTo(x + rr, y + h);
+    ctx.arcTo(x, y + h, x, y + h - rr, rr);
+    ctx.lineTo(x, y + rr);
+    ctx.arcTo(x, y, x + rr, y, rr);
+    ctx.closePath();
+}
+
+function dmMeasureCtxGet(){
+    if(!dmMeasureCtx){
+        dmMeasureCtx = document.createElement('canvas').getContext('2d');
+    }
+    return dmMeasureCtx;
+}
+
+/* 精确量宽：只在排版/烘焙时计算，不进每帧循环 */
+function dmTextWidth(text, font){
+    const ctx = dmMeasureCtxGet();
+    ctx.font = font;
+    return ctx.measureText(String(text)).width;
+}
+
+/* 字体的上/下度量：行盒 = 行高减去字体内容高度后对半分到上下 */
+function dmFontBox(font){
+    const cached = dmFontMetrics.get(font);
+    if(cached){
+        return cached;
+    }
+    const ctx = dmMeasureCtxGet();
+    ctx.font = font;
+    const m = ctx.measureText('Hg中');
+    const match = font.match(/(\d+(?:\.\d+)?)px/);
+    const size = match ? parseFloat(match[1]) : 17;
+    const box = {
+        ascent: m.fontBoundingBoxAscent || m.actualBoundingBoxAscent || size * 0.88,
+        descent: m.fontBoundingBoxDescent || m.actualBoundingBoxDescent || size * 0.22
+    };
+    dmFontMetrics.set(font, box);
+    return box;
+}
+
+/* 某一行文字的基线相对行顶的偏移 */
+function dmBaseline(font, lineH){
+    const box = dmFontBox(font);
+    return (lineH - (box.ascent + box.descent)) / 2 + box.ascent;
+}
+
+/* 可以“任何位置断行”的字符：中日韩与全角标点（等价 word-break:break-word 的效果） */
+function dmBreakAny(ch){
+    return ch.charCodeAt(0) > 0x2e80;
+}
+
+/* 把若干「文字段」按宽度折行。gap 是这一段与同一行前一段之间的间距（对应 DOM 的 flex gap）。
+   返回：行 → 片段数组，片段是 {text, font, color} 或 {gap}；color 是调色板里的键名 */
+function dmLayoutRuns(runs, maxW){
+    const lines = [];
+    let line = [];
+    let lineW = 0;
+
+    function pushLine(){
+        lines.push(line);
+        line = [];
+        lineW = 0;
+    }
+
+    function emit(text, font, color){
+        if(!text){
+            return;
+        }
+        const w = dmTextWidth(text, font);
+        if(lineW + w > maxW && lineW > 0){
+            pushLine();
+        }
+        if(w > maxW){
+            // 单个不可断串比整行还宽（超长英文、URL）：逐字硬断
+            let buf = '';
+            let bufW = 0;
+            for(const ch of text){
+                const cw = dmTextWidth(ch, font);
+                if(bufW + cw > maxW && buf){
+                    line.push({text: buf, font: font, color: color});
+                    pushLine();
+                    buf = '';
+                    bufW = 0;
+                }
+                buf += ch;
+                bufW += cw;
+            }
+            if(buf){
+                line.push({text: buf, font: font, color: color});
+                lineW += bufW;
+            }
+            return;
+        }
+        line.push({text: text, font: font, color: color});
+        lineW += w;
+    }
+
+    runs.forEach(function(run, idx){
+        if(idx > 0 && run.gap && lineW > 0){
+            if(lineW + run.gap > maxW){
+                pushLine();
+            }else{
+                line.push({gap: run.gap});
+                lineW += run.gap;
+            }
+        }
+
+        let token = '';
+        const flush = function(){
+            if(token){
+                emit(token, run.font, run.color);
+                token = '';
+            }
+        };
+
+        for(const ch of String(run.text)){
+            if(dmBreakAny(ch)){
+                flush();
+                emit(ch, run.font, run.color);
+            }else if(ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r'){
+                flush();
+                emit(' ', run.font, run.color);
+            }else{
+                token += ch;
+            }
+        }
+        flush();
+    });
+
+    pushLine();
+    return lines;
+}
+
+/* 若干文字段在「完全不折行」时的自然宽度（DOM 的 width:max-content 就是这个） */
+function dmRunsWidth(runs){
+    let w = 0;
+    runs.forEach(function(run, idx){
+        if(idx > 0 && run.gap){
+            w += run.gap;
+        }
+        w += dmTextWidth(run.text, run.font);
+    });
+    return w;
+}
+
+/* 一条弹幕组 = 一条一级评论 + 挂在它下面的二级评论。
+   先按自然宽度定气泡宽度（等价 DOM 的 width:max-content + max-width），
+   再按这个宽度折行。排版结果缓存在组上：同一条弹幕只排一次版 */
+function dmLayout(group){
+    if(group.dmLayout && group.dmLayoutW === dmW){
+        return group.dmLayout;
+    }
+
+    const c = group.c;
+    const name = c.name || ('UID ' + c.uid);
+    const uidText = 'UID ' + c.uid + (c.sub ? ' · 二级' : '');
+    const content = c.content || '（无内容）';
+
+    const headRuns = [
+        {text: name, font: VIZ_DM_FONT_17B, color: 'text', gap: 0},
+        {text: uidText, font: VIZ_DM_FONT_14, color: 'muted', gap: 7}
+    ];
+    const contentRuns = [
+        {text: content, font: VIZ_DM_FONT_17, color: 'secondary', gap: 0}
+    ];
+
+    const subs = group.subs || [];
+    const subRuns = subs.map(function(s){
+        return [
+            {
+                text: '↳ ' + (s.name || ('UID ' + s.uid)),
+                font: VIZ_DM_FONT_14B,
+                color: 'secondary',
+                gap: 0
+            },
+            {
+                text: '：' + (s.content || '（无内容）'),
+                font: VIZ_DM_FONT_14,
+                color: 'muted',
+                gap: 0
+            }
+        ];
+    });
+
+    // 自然宽度：取「头像 + 间距 + 正文」里最宽的那一路
+    const chrome = VIZ_DM_FACE + VIZ_DM_GAP + VIZ_DM_PAD_V + VIZ_DM_PAD_R;
+    const maxW = Math.min(dmW * 0.92, VIZ_DM_MAX_W);
+    let pref = Math.max(dmRunsWidth(headRuns), dmTextWidth(content, VIZ_DM_FONT_17));
+    subRuns.forEach(function(runs){
+        pref = Math.max(pref, VIZ_DM_SUB_FACE + VIZ_DM_SUB_GAP + dmRunsWidth(runs));
+    });
+
+    const bubbleW = Math.min(Math.max(VIZ_DM_MIN_W, pref + chrome), maxW);
+    const bodyW = Math.max(1, bubbleW - chrome);
+    const subBodyW = Math.max(1, bodyW - VIZ_DM_SUB_FACE - VIZ_DM_SUB_GAP);
+
+    const headLines = dmLayoutRuns(headRuns, bodyW);
+    const txtLines = dmLayoutRuns(contentRuns, bodyW);
+    const subLines = subRuns.map(function(runs){
+        return dmLayoutRuns(runs, subBodyW);
+    });
+
+    // 高度：头部行 + 3px 间隔 + 正文行 + 每条二级行（含 4px 上间距）
+    let bodyH = headLines.length * VIZ_DM_LINE_17 + 3 + txtLines.length * VIZ_DM_LINE_17;
+    subLines.forEach(function(lines){
+        bodyH += Math.max(VIZ_DM_SUB_FACE, lines.length * VIZ_DM_LINE_14) + 4;
+    });
+
+    group.dmLayoutW = dmW;
+    group.dmLayout = {
+        bubbleW: bubbleW,
+        bubbleH: VIZ_DM_PAD_V + Math.max(VIZ_DM_FACE, bodyH) + VIZ_DM_PAD_V,
+        headLines: headLines,
+        txtLines: txtLines,
+        subLines: subLines
+    };
+    return group.dmLayout;
+}
+
+/* 头像位图：同一个 url 只加载一次（同一用户的多条评论共用）。
+   加载完成或失败都让 dmImgEpoch +1，在位的弹幕会带着真头像重烘一次 */
+function dmImage(url, name){
+    let img = dmImages.get(url);
+    if(img){
+        return img;
+    }
+
+    img = new Image();
+    img.decoding = 'async';
+    img.dataset.name = name || '';
+    img.onload = function(){
+        dmImgEpoch++;
+    };
+    img.onerror = function(){
+        img.onerror = null;
+        dmImgEpoch++;
+        img.src = avatarFallback(img.dataset.name || '');
+    };
+    dmImages.set(url, img);
+    img.src = url;
+
+    if(dmImages.size > VIZ_DM_IMG_MAX){
+        dmImages.forEach(function(value, key){
+            if(dmImages.size > VIZ_DM_IMG_MAX / 2 && value.complete){
+                dmImages.delete(key);
+            }
+        });
+    }
+    return img;
+}
+
+/* 圆形头像（object-fit:cover 的手工版）；还没加载好就先铺一层底色占位 */
+function dmDrawFace(ctx, img, x, y, size, placeholder){
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+
+    if(img && img.complete && img.naturalWidth > 0){
+        const ratio = Math.max(size / img.naturalWidth, size / img.naturalHeight);
+        const w = img.naturalWidth * ratio;
+        const h = img.naturalHeight * ratio;
+        ctx.drawImage(img, x + (size - w) / 2, y + (size - h) / 2, w, h);
+    }else{
+        ctx.fillStyle = placeholder;
+        ctx.fillRect(x, y, size, size);
+    }
+    ctx.restore();
+}
+
+/* 画一行：片段首尾相接，基线按该行的主字号算（同一行不同字号共享基线） */
+function dmDrawLine(ctx, line, x, top, lineH, baseFont, palette){
+    let cx = x;
+    const baseline = top + dmBaseline(baseFont, lineH);
+    line.forEach(function(part){
+        if(part.gap){
+            cx += part.gap;
+            return;
+        }
+        ctx.font = part.font;
+        ctx.fillStyle = palette[part.color] || part.color;
+        ctx.fillText(part.text, cx, baseline);
+        cx += dmTextWidth(part.text, part.font);
+    });
+}
+
+/* 把一条弹幕烘焙成位图；只有内容/皮肤/头像/缩放变了才重烘。
+   bake = 设备像素 × 该条的随机缩放：贴图时 1:1，滚动中的文字不发虚 */
+function dmBake(item){
+    if(item.bmp && item.bmpEpoch === dmImgEpoch && item.bmpW === dmW &&
+        item.bmpTheme === dmThemeEpoch && item.bmpScale === item.scale){
+        return item.bmp;
+    }
+
+    const palette = dmColors();
+    const L = dmLayout(item.group);
+    const group = item.group;
+    const pad = VIZ_DM_SHADOW_PAD;
+    const boxW = L.bubbleW + pad * 2;
+    const boxH = L.bubbleH + pad * 2;
+
+    let bake = dmDpr * item.scale;
+    if(boxW * boxH * bake * bake > VIZ_DM_BAKE_MAX){
+        bake = Math.sqrt(VIZ_DM_BAKE_MAX / (boxW * boxH));
+    }
+
+    const off = document.createElement('canvas');
+    off.width = Math.max(1, Math.round(boxW * bake));
+    off.height = Math.max(1, Math.round(boxH * bake));
+    const ctx = off.getContext('2d');
+    ctx.scale(bake, bake);
+
+    const x0 = pad;
+    const y0 = pad;
+
+    // 玻璃底 + 阴影（阴影同样在底下面，会被半透明底透出来，与 CSS 的行为一致）
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.12)';
+    ctx.shadowBlur = 7;
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = dmGradient(ctx, x0, y0, L.bubbleW, L.bubbleH, 150,
+        palette.glassA, palette.glassB);
+    dmRoundRect(ctx, x0, y0, L.bubbleW, L.bubbleH, VIZ_DM_RADIUS);
+    ctx.fill();
+    ctx.restore();
+
+    // 顶部内高光（CSS 的 inset 0 1px 0）裁在圆角里
+    ctx.save();
+    dmRoundRect(ctx, x0, y0, L.bubbleW, L.bubbleH, VIZ_DM_RADIUS);
+    ctx.clip();
+    ctx.fillStyle = palette.glow;
+    ctx.fillRect(x0, y0 + 1, L.bubbleW, 1);
+    ctx.restore();
+
+    // 1px 边框
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = palette.border;
+    dmRoundRect(ctx, x0 + .5, y0 + .5, L.bubbleW - 1, L.bubbleH - 1, VIZ_DM_RADIUS - .5);
+    ctx.stroke();
+
+    // 头像
+    const faceX = x0 + VIZ_DM_PAD_V;
+    const faceY = y0 + VIZ_DM_PAD_V;
+    dmDrawFace(ctx, dmImage(avatarSrc(group.c.avatar, group.c.name), group.c.name),
+        faceX, faceY, VIZ_DM_FACE, palette.codeBg);
+
+    // 正文
+    const bodyX = faceX + VIZ_DM_FACE + VIZ_DM_GAP;
+    let y = y0 + VIZ_DM_PAD_V;
+
+    L.headLines.forEach(function(line){
+        dmDrawLine(ctx, line, bodyX, y, VIZ_DM_LINE_17, VIZ_DM_FONT_17B, palette);
+        y += VIZ_DM_LINE_17;
+    });
+
+    y += 3;
+    L.txtLines.forEach(function(line){
+        dmDrawLine(ctx, line, bodyX, y, VIZ_DM_LINE_17, VIZ_DM_FONT_17, palette);
+        y += VIZ_DM_LINE_17;
+    });
+
+    // 二级评论：小头像 + 缩进文字，逐行挂在父评论下面
+    L.subLines.forEach(function(lines, i){
+        const sub = (group.subs || [])[i] || {};
+        y += 4;
+        dmDrawFace(ctx, dmImage(avatarSrc(sub.avatar, sub.name), sub.name),
+            bodyX, y, VIZ_DM_SUB_FACE, palette.codeBg);
+
+        const subX = bodyX + VIZ_DM_SUB_FACE + VIZ_DM_SUB_GAP;
+        let sy = y;
+        lines.forEach(function(line){
+            dmDrawLine(ctx, line, subX, sy, VIZ_DM_LINE_14, VIZ_DM_FONT_14B, palette);
+            sy += VIZ_DM_LINE_14;
+        });
+        y += Math.max(VIZ_DM_SUB_FACE, lines.length * VIZ_DM_LINE_14);
+    });
+
+    // 视口宽度变了，排版宽度也跟着变：item.w 与位图一起更新
+    item.w = L.bubbleW * item.scale;
+    item.bmp = {
+        canvas: off,
+        w: boxW,          // 位图的逻辑尺寸（含阴影边距）
+        h: boxH,
+        bw: L.bubbleW,    // 气泡本体尺寸
+        bh: L.bubbleH
+    };
+    item.bmpEpoch = dmImgEpoch;
+    item.bmpW = dmW;
+    item.bmpTheme = dmThemeEpoch;
+    item.bmpScale = item.scale;
+    return item.bmp;
+}
+
+/* 每帧：整体清屏，然后按「当前已走的距离」把每条位图贴到该在的位置。
+   位置由累计距离算出（不是墙钟），所以标签页切走再回来不会整批瞬移 */
+/* 迷你气泡（只有头像 + UID）：弹幕快飞出左缘时“送进”核对面板，形变成的就是它 */
+function dmMini(group){
+    if(group.dmMini){
+        return group.dmMini;
+    }
+    const c = dmColors();
+    const uidText = 'UID ' + group.c.uid;
+    const face = 26;
+    const padX = 9;
+    const gap = 7;
+    const font = '600 14px ' + VIZ_DM_FONT;
+    const w = padX * 2 + face + gap + dmTextWidth(uidText, font);
+    const h = face + 10;
+
+    const off = document.createElement('canvas');
+    off.width = Math.max(1, Math.round(w * dmDpr));
+    off.height = Math.max(1, Math.round(h * dmDpr));
+    const ctx = off.getContext('2d');
+    ctx.scale(dmDpr, dmDpr);
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,.12)';
+    ctx.shadowBlur = 7;
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = dmGradient(ctx, 0, 0, w, h, 150, c.glassA, c.glassB);
+    dmRoundRect(ctx, 0, 0, w, h, h / 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = c.border;
+    dmRoundRect(ctx, .5, .5, w - 1, h - 1, (h - 1) / 2);
+    ctx.stroke();
+
+    dmDrawFace(ctx, dmImage(avatarSrc(group.c.avatar, group.c.name), group.c.name),
+        padX, (h - face) / 2, face, c.codeBg);
+
+    ctx.font = font;
+    ctx.fillStyle = c.text;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(uidText, padX + face + gap, h / 2 + 1);
+
+    group.dmMini = {canvas: off, w: w, h: h};
+    return group.dmMini;
+}
+
+/* 落点：核对窗口里的一块空处，不针对某个人
+   （发送者与“当前正在核对的人”不做任何对应）。
+   用轮转计数把落点错开，免得连着几条叠在同一个点上 */
+let dmTargetTurn = 0;
+
+function dmDeliverTarget(){
+    const panel = $('filterPanel');
+    if(!panel){
+        return null;
+    }
+    const r = panel.getBoundingClientRect();
+    if(r.width < 1){
+        return null;
+    }
+    const turn = dmTargetTurn++ % 6;
+    return {
+        x: r.left + r.width * (0.28 + 0.10 * (turn % 3)),
+        y: r.top + 34 + 26 * Math.floor(turn / 3)
+    };
+}
+
+/* 快飞出左缘、且当前正在核对资格时，把这条弹幕“投递”进核对面板。
+   同时最多两条，避免一整片弹幕全往面板里钻；落点只在这里读一次布局 */
+function dmTryDeliver(item, x, width){
+    if(item.deliver || dmDelivering >= 2 || vizStage !== 'filter' || x > 150 || x + width < 0){
+        return;
+    }
+    const target = dmDeliverTarget();
+    if(!target){
+        return;
+    }
+    item.deliver = target;
+    item.dt = 0;
+    dmDelivering++;
+}
+
+function dmFrame(ts){
+    const dt = dmLastTS ? Math.min(0.05, (ts - dmLastTS) / 1000) : 0;
+    dmLastTS = ts;
+
+    dmCtx.setTransform(dmDpr, 0, 0, dmDpr, 0, 0);
+    dmCtx.clearRect(0, 0, dmW, dmH);
+
+    const step = VIZ_DM_SPEED * dt;
+    const keep = [];
+
+    for(let i = 0; i < dmActive.length; i++){
+        const item = dmActive[i];
+        item.dist += step;
+        const x = dmW + item.lead - item.dist;
+
+        // 刚从“收集评论”圆环里飞出来：向右侧入场点靠拢，途中由小气泡长成完整弹幕
+        if(item.entry){
+            item.entry.t += dt;
+            const p = Math.min(1, item.entry.t / 0.62);
+            const k = 1 - Math.pow(1 - p, 3);          // ease-out，不回弹
+            const bmp = dmBake(item);
+            const mini = dmMini(item.group);
+            const x1 = x + bmp.bw * item.scale / 2;    // 入场点：右缘外那一格
+            const y1 = item.top + bmp.bh * item.scale / 2;
+            const cx = item.entry.x0 + (x1 - item.entry.x0) * k;
+            const cy = item.entry.y0 + (y1 - item.entry.y0) * k;
+
+            // 小气泡：前段只有它，越飞越淡
+            const ms = 1 - 0.15 * k;
+            dmCtx.globalAlpha = item.alpha * Math.max(0, 1 - k * 1.6);
+            dmCtx.drawImage(mini.canvas, cx - mini.w * ms / 2, cy - mini.h * ms / 2, mini.w * ms, mini.h * ms);
+
+            // 完整弹幕：后段淡入，并从 62% 长到最终尺寸
+            const s = item.scale * (0.62 + 0.38 * k);
+            dmCtx.globalAlpha = item.alpha * Math.max(0, (k - 0.35) / 0.65);
+            dmCtx.drawImage(bmp.canvas, cx - bmp.w * s / 2, cy - bmp.h * s / 2, bmp.w * s, bmp.h * s);
+            dmCtx.globalAlpha = 1;
+
+            if(p < 1){
+                keep.push(item);
+            }else{
+                // 入场完成：交回正常左滚（dist 还是 0，正好从右缘那一格开始滚）
+                item.entry = null;
+                keep.push(item);
+            }
+            continue;
+        }
+
+        // 被“投递”进核对面板的：停止左移，向落点收拢，途中形变成头像 + UID 小气泡
+        if(item.deliver){
+            item.dt += dt;
+            const p = Math.min(1, item.dt / 0.5);
+            const k = 1 - Math.pow(1 - p, 3);          // ease-out，不回弹
+            const bmp = dmBake(item);
+            const mini = dmMini(item.group);
+            const cx0 = x + bmp.bw * item.scale / 2;
+            const cy0 = item.top + bmp.bh * item.scale / 2;
+            const cx = cx0 + (item.deliver.x - cx0) * k;
+            const cy = cy0 + (item.deliver.y - cy0) * k;
+
+            // 整条气泡：一边收小一边淡出
+            const s = item.scale * (1 - 0.42 * k);
+            dmCtx.globalAlpha = item.alpha * (1 - k) * (1 - k);
+            dmCtx.drawImage(bmp.canvas, cx - bmp.w * s / 2, cy - bmp.h * s / 2, bmp.w * s, bmp.h * s);
+
+            // 小气泡：淡入、轻微收小；最后 18% 再淡掉，交给面板里的 chip 接手
+            const ms = 1 - 0.16 * k;
+            const fade = p > 0.82 ? (1 - p) / 0.18 : 1;
+            dmCtx.globalAlpha = item.alpha * Math.min(1, k * 2.2) * fade;
+            dmCtx.drawImage(mini.canvas, cx - mini.w * ms / 2, cy - mini.h * ms / 2, mini.w * ms, mini.h * ms);
+            dmCtx.globalAlpha = 1;
+
+            if(p < 1){
+                keep.push(item);
+            }else{
+                dmDelivering--;
+            }
+            continue;
+        }
+
+        // 连尾巴一起出了左屏就可以丢了（用发布时算好的宽度判断，省一次烘焙）
+        if(x + item.w + VIZ_DM_TAIL_PX <= 0){
+            continue;
+        }
+
+        const bmp = dmBake(item);
+        dmTryDeliver(item, x, bmp.bw * item.scale);
+        keep.push(item);
+
+        const s = item.scale;
+        dmCtx.globalAlpha = item.alpha;
+        // transform-origin 是 left center：纵向按中心缩放
+        dmCtx.drawImage(
+            bmp.canvas,
+            x - VIZ_DM_SHADOW_PAD * s,
+            item.top + bmp.bh / 2 - bmp.bh * s / 2 - VIZ_DM_SHADOW_PAD * s,
+            bmp.w * s,
+            bmp.h * s
+        );
+    }
+
+    dmCtx.globalAlpha = 1;
+    dmActive = keep;
+
+    if(!dmActive.length){
+        dmRaf = 0;
+        return;
+    }
+    dmRaf = requestAnimationFrame(dmFrame);
+}
+
+function dmStartLoop(){
+    if(!dmCanvas){
+        dmResizeCanvas();
+    }
+    if(!dmRaf && dmCtx){
+        dmLastTS = 0;
+        dmRaf = requestAnimationFrame(dmFrame);
+    }
+}
+
+function dmStopLoop(clear){
+    if(dmRaf){
+        cancelAnimationFrame(dmRaf);
+        dmRaf = 0;
+    }
+    dmLastTS = 0;
+    dmActive = [];
+    dmDelivering = 0;
+    if(clear && dmCtx && dmCanvas){
+        dmCtx.setTransform(1, 0, 0, 1, 0, 0);
+        dmCtx.clearRect(0, 0, dmCanvas.width, dmCanvas.height);
+    }
+}
+
+/* 弹幕避让：不盖住当前聚焦（居中放大）的窗口。
+   读取窗口位置会触碰布局，所以只在聚焦/缩放/改变窗口大小时用 rAF 节流刷新 */
+let dmAvoidRect = null;     // 聚焦窗口的纵向避让区（视口坐标）
+let dmAvoidQueued = false;
+let dmRingPos = null;       // “收集评论”圆环中心（视口坐标）：弹幕入场的起点
+
+function refreshDmAvoid(){
+    // 顺带量一下收集评论的圆环：弹幕就从这里飞出来
+    const ring = $('crawlRing');
+    if(ring){
+        const rr = ring.getBoundingClientRect();
+        dmRingPos = rr.width > 0
+            ? {x: rr.left + rr.width / 2, y: rr.top + rr.height / 2}
+            : null;
+    }else{
+        dmRingPos = null;
+    }
+
+    const el = document.querySelector('.stage-focus');
+    if(!el){
+        dmAvoidRect = null;
+        return;
+    }
+    const r = el.getBoundingClientRect();
+    dmAvoidRect = {top: r.top - 10, bottom: r.bottom + 10};
+}
+
+function scheduleDmAvoid(){
+    if(dmAvoidQueued){
+        return;
+    }
+    dmAvoidQueued = true;
+    requestAnimationFrame(function(){
+        dmAvoidQueued = false;
+        refreshDmAvoid();
+    });
+}
+
+/* 该轨道是否落在聚焦窗口的避让区里 */
+function dmLaneBlocked(i){
+    if(!dmAvoidRect){
+        return false;
+    }
+    const top = i * VIZ_DM_LANE_H + VIZ_DM_TOP_PAD;
+    return top + VIZ_DM_LANE_H > dmAvoidRect.top && top < dmAvoidRect.bottom;
+}
+
+window.addEventListener('resize', function(){
+    dmResizeCanvas();
+    scheduleDmAvoid();
+});
+window.addEventListener('scroll', scheduleDmAvoid, {passive:true});
+
+/* 换肤：位图里烘死了颜色，让在位的气泡按新皮肤重烘一次 */
+if(window.matchMedia){
+    const dmScheme = window.matchMedia('(prefers-color-scheme:dark)');
+    const dmOnScheme = function(){
+        dmTheme = null;
+        dmThemeEpoch++;
+        dmActive.forEach(function(item){
+            item.bmp = null;
+        });
+    };
+    if(dmScheme.addEventListener){
+        dmScheme.addEventListener('change', dmOnScheme);
+    }else if(dmScheme.addListener){
+        dmScheme.addListener(dmOnScheme);
+    }
+}
+
+/* 字体就绪后重烘一次：万一首屏用了回退字体，也能换回正确字形 */
+if(document.fonts && document.fonts.ready && document.fonts.ready.then){
+    document.fonts.ready.then(function(){
+        dmImgEpoch++;
+    });
+}
+
+function resetDanmu(){
+    if(vizDmTimer){
+        clearInterval(vizDmTimer);
+        vizDmTimer = null;
+    }
+
+    vizDmSeen = new Set();
+    vizDmQueue = [];
+    vizDmPending = new Map();
+    vizDmLanes = [];
+    vizDmWindowOpen = false;
+    for(let i = 0; i < dmLaneCount(); i++){
+        vizDmLanes.push(0);
+    }
+    dmStopLoop(true);
+
+    // 顺手刷新一下圆环位置：新一轮的第一条弹幕也要从圆环飞出来
+    scheduleDmAvoid();
+
+    // 注意：不能清 #danmu 的子节点，画布就在里面
+    const box = $('danmu');
+    if(box){
+        box.classList.remove('closing');
+    }
+}
+
+/* 关闭弹幕播放窗口（进入抽奖/结束/失败）：停止发布、丢掉积压，
+   整层淡出后清屏，保证出结果时屏幕是干净的。
+   注意：若淡出期间新一轮已经开始（resetDanmu 移除了 closing），就不要再动它 */
+function closeDanmuWindow(){
+    const box = $('danmu');
+
+    vizDmQueue = [];
+    vizDmPending = new Map();
+    if(vizDmTimer){
+        clearInterval(vizDmTimer);
+        vizDmTimer = null;
+    }
+
+    if(!box || !dmActive.length){
+        dmStopLoop(true);
+        return;
+    }
+
+    // 淡出期间循环继续画，气泡是一起淡掉的，不会“咔”地消失
+    box.classList.add('closing');
+    setTimeout(function(){
+        if(box.classList.contains('closing')){
+            box.classList.remove('closing');
+            dmStopLoop(true);
+        }
+    }, 420);
+}
+
+/* 发布一道弹幕（含挂在下面的二级评论）；没有空闲轨道就返回 false，等下一拍 */
+function dmLaunch(group){
+    if(!dmCanvas || !dmW || !dmH){
+        dmResizeCanvas();
+    }
+    if(!dmW || !dmH){
+        return false;
+    }
+
+    const now = Date.now();
+
+    // 视口高度变了就重建轨道表
+    const lanes = dmLaneCount();
+    if(vizDmLanes.length !== lanes){
+        const old = vizDmLanes;
+        vizDmLanes = [];
+        for(let i = 0; i < lanes; i++){
+            vizDmLanes.push(old[i] || 0);
+        }
+    }
+
+    const L = dmLayout(group);
+
+    // 随机参差：垂直抖动、入场错开、大小与透明度也略有差别，
+    // 避免所有弹幕排成一整整齐齐的几行
+    const jitter = (Math.random() * 12) - 6;                 // ±6px
+    const lead = Math.random() * 140;                        // 入场错开 0~140px（缩短同轨间距，播得更快）
+    const scale = 0.96 + Math.random() * 0.10;               // 0.96 ~ 1.06（越接近 1 越不发虚）
+    const alpha = 0.85 + Math.random() * 0.12;               // 0.85 ~ 0.97（越实越不显拖影）
+
+    // 尺寸是精确量出来的，+6 只是轨道之间的一点缓冲
+    const height = L.bubbleH * scale;
+    const width = L.bubbleW * scale;
+    const span = Math.min(
+        Math.max(1, Math.ceil((height + 6) / VIZ_DM_LANE_H)),
+        vizDmLanes.length
+    );
+
+    let lane = -1;
+    for(let i = 0; i + span <= vizDmLanes.length; i++){
+        let free = true;
+        for(let j = i; j < i + span; j++){
+            if(vizDmLanes[j] > now || dmLaneBlocked(j)){
+                free = false;
+                break;
+            }
+        }
+        if(free){
+            lane = i;
+            break;
+        }
+    }
+
+    // 这一拍没位置：等下一拍再发（此时位图都还没烘，不浪费）
+    if(lane < 0){
+        return false;
+    }
+
+    const item = {
+        group: group,
+        // 顶部留出间隔：既不会被裁，也不贴屏幕边缘
+        top: Math.max(VIZ_DM_TOP_PAD, lane * VIZ_DM_LANE_H + VIZ_DM_TOP_PAD + jitter),
+        lead: lead,
+        scale: scale,
+        alpha: alpha,
+        dist: 0,
+        w: width
+    };
+    // 从“收集评论”圆环里飞出来，飞到右缘才算入场完成（之后接正常的左滚）
+    if(dmRingPos){
+        item.entry = {x0: dmRingPos.x, y0: dmRingPos.y, t: 0};
+    }
+    dmActive.push(item);
+
+    // 占用的这几条轨道，要等这道弹幕的尾部离开右边缘才空出来
+    const busyUntil = now + ((lead + width) / VIZ_DM_SPEED) * 1000;
+    for(let j = lane; j < lane + span; j++){
+        vizDmLanes[j] = busyUntil;
+    }
+
+    dmStartLoop();
+    return true;
+}
+
+/* 有新评论就发；积压越多每拍多发几道，趁早排空 */
+function dmPump(){
+    const limit = vizDmQueue.length > 20 ? 6 : VIZ_DM_PER_TICK;
+    for(let i = 0; i < limit && vizDmQueue.length; i++){
+        if(!dmLaunch(vizDmQueue[0])){
+            break;
+        }
+        dropDanmuGroup(vizDmQueue.shift());
+    }
+}
+
+/* 组出队/被丢弃时，注销“等待二级评论并入”的登记 */
+function dropDanmuGroup(g){
+    if(!g || !g.c || !g.c.rpid){
+        return;
+    }
+    const key = String(g.c.rpid);
+    if(vizDmPending.get(key) === g){
+        vizDmPending.delete(key);
+    }
+}
+
+/* 只处理本次新出现的评论（按 rpid 去重），排队等待滚动展示；
+   只有收集/核对阶段才接收，出结果后不再补播 */
+function renderDanmu(p){
+    if(!vizDmWindowOpen){
+        return;
+    }
+    const list = p.comments || [];
+    if(!list.length){
+        return;
+    }
+
+    list.forEach(function(c){
+        const key = String(c.rpid || (c.uid + '|' + c.content));
+        if(vizDmSeen.has(key)){
+            return;
+        }
+        vizDmSeen.add(key);
+
+        // 二级评论：后端会把同一楼的回复和它的一级评论按“父先子后”一起下发，
+        // 所以正常情况下此刻一定能挂上；挂不上（该楼被截断/已经滚过）
+        // 就直接丢弃——不单独显示零散的二级评论
+        if(c.sub){
+            const root = String(c.root || '');
+            const g = root ? vizDmPending.get(root) : null;
+            if(g){
+                g.subs.push(c);
+            }
+            return;
+        }
+
+        const group = {c: c, subs: []};
+        vizDmQueue.push(group);
+        if(c.rpid){
+            vizDmPending.set(String(c.rpid), group);
+        }
+    });
+
+    while(vizDmQueue.length > VIZ_DM_QUEUE_MAX){
+        dropDanmuGroup(vizDmQueue.shift());
+    }
+
+    if(!vizDmTimer){
+        vizDmTimer = setInterval(dmPump, VIZ_DM_TICK_MS);
+        dmPump();
+    }
+}
+
+/* 收集评论面板 */
+function renderCrawl(p, running){
+    setNumber($('crawlCount'), p.commentsFetched || 0);
+
+    $('crawlTotal').textContent =
+        p.commentsTotal > 0 ? String(p.commentsTotal) : (running ? '统计中' : '-');
+
+    $('crawlPage').textContent =
+        p.pagesTotal > 0
+            ? ('第 ' + p.pagesFetched + ' / ' + p.pagesTotal + ' 页')
+            : (p.pagesFetched > 0 ? '第 ' + p.pagesFetched + ' 页' : '等待开始');
+
+    $('crawlSub').textContent = String(p.subFetched || 0);
+
+    $('crawlUsers').textContent = p.usersTotal > 0 ? String(p.usersTotal) : '-';
+
+    // 环形进度：优先用条数，其次用页数，都没有就转圈
+    const ring = $('crawlRing');
+    const bar = $('ringBar');
+    let ratio = -1;
+    if(p.commentsTotal > 0){
+        ratio = Math.min(1, (p.commentsFetched || 0) / p.commentsTotal);
+    }else if(p.pagesTotal > 0){
+        ratio = Math.min(1, (p.pagesFetched || 0) / p.pagesTotal);
+    }
+
+    if(ratio < 0){
+        ring.classList.toggle('indet', !!running);
+    }else{
+        ring.classList.remove('indet');
+        bar.style.strokeDashoffset = String(VIZ_RING_LEN * (1 - ratio));
+    }
+}
+
+/* 单个筛选结果小卡 */
+function buildChip(u){
+    const el = document.createElement('div');
+    el.className = 'chip ' + (u.passed ? 'ok' : 'ng');
+    // 记一下 uid：候选池那边要按它找到这块 chip，把头像“飞”过去
+    el.dataset.uid = String(u.uid);
+    el.title =
+        (u.name || '') + ' · UID ' + u.uid +
+        (u.passed ? ' · 符合条件' : ' · ' + (u.reason || '不符合条件'));
+
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.alt = '';
+    img.decoding = 'async';
+    img.dataset.name = u.name || '';
+    img.src = avatarSrc(u.avatar, u.name);
+    img.onerror = function(){
+        this.onerror = null;
+        this.src = avatarFallback(this.dataset.name);
+    };
+
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = u.name || ('UID ' + u.uid);
+
+    const mk = document.createElement('span');
+    mk.className = 'mk';
+    mk.textContent = u.passed ? '✓' : '✗';
+
+    el.appendChild(img);
+    el.appendChild(nm);
+    el.appendChild(mk);
+    return el;
+}
+
+/* 核对资格面板：只追加新出现的用户，新结果放在最前面 */
+function renderFilter(p){
+    const totalU = p.usersTotal || 0;
+    const passed = p.usersPassed || 0;
+    const failed = p.usersFailed || 0;
+    const checked = p.usersChecked || 0;
+
+    $('filterStat').textContent =
+        totalU > 0
+            ? checked + ' / ' + totalU + ' · ' + passed + ' 人符合条件'
+            : '等待开始';
+
+    $('barOk').style.width = totalU > 0 ? (passed / totalU * 100).toFixed(2) + '%' : '0';
+    $('barNg').style.width = totalU > 0 ? (failed / totalU * 100).toFixed(2) + '%' : '0';
+
+    const grid = $('scanGrid');
+    if(!grid){
+        return;
+    }
+
+    const list = (p.recent || []).slice().reverse();
+
+    if(!list.length){
+        if(!grid.firstChild){
+            grid.innerHTML = '<div class="scan-empty">等待核对...</div>';
+        }
+        return;
+    }
+
+    const empty = grid.querySelector('.scan-empty');
+    if(empty){
+        empty.remove();
+    }
+
+    const frag = document.createDocumentFragment();
+    let added = 0;
+    list.forEach(function(u){
+        const key = String(u.seq) + '-' + u.uid;
+        if(vizChipSeqs.has(key)){
+            return;
+        }
+        vizChipSeqs.add(key);
+        frag.appendChild(buildChip(u));
+        added++;
+    });
+
+    if(added){
+        grid.insertBefore(frag, grid.firstChild);
+        while(grid.children.length > VIZ_CHIP_MAX){
+            grid.removeChild(grid.lastChild);
+        }
+    }
+}
+
+/* 候选池气泡 */
+function buildBubble(u){
+    const url = userSpaceUrl(u.uid);
+    const el = document.createElement(url ? 'a' : 'div');
+    el.className = 'bub';
+    el.dataset.uid = String(u.uid);
+    if(url){
+        el.href = url;
+        el.target = '_blank';
+        el.rel = 'noopener noreferrer';
+    }
+    el.title =
+        (u.name || 'UID ' + u.uid) +
+        (u.medalName ? ' · ' + u.medalName + ' Lv.' + u.medalLevel : '') +
+        (url ? ' · 点击打开主页' : '');
+
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.alt = u.name || '';
+    img.decoding = 'async';
+    img.dataset.name = u.name || '';
+    img.src = avatarSrc(u.avatar, u.name);
+    img.onerror = function(){
+        this.onerror = null;
+        this.src = avatarFallback(this.dataset.name);
+    };
+
+    el.appendChild(img);
+    return el;
+}
+
+/* 核对通过、刚进池的头像：从核对面板里它那块 chip 的位置飞进池子。
+   非线性（ease-out 曲线）、不回弹（不带过冲）；找不到来源就退回原本的入场动画 */
+function flyBubbleFromChip(bub, uid){
+    const grid = $('scanGrid');
+    const chip = grid ? grid.querySelector('.chip[data-uid="' + uid + '"]') : null;
+    const face = chip ? chip.querySelector('img') : null;
+    if(!bub || !face || !face.getBoundingClientRect){
+        return;
+    }
+
+    const from = face.getBoundingClientRect();
+    const to = bub.getBoundingClientRect();
+    if(from.width < 1 || to.width < 1){
+        return;
+    }
+
+    // 这次入场交给“飞行”：关掉自带的 bubIn，免得两套 transform 打架
+    bub.style.animation = 'none';
+    bub.style.transformOrigin = 'top left';
+    bub.style.transition = 'none';
+    bub.style.transform =
+        'translate(' + (from.left - to.left).toFixed(1) + 'px, ' +
+        (from.top - to.top).toFixed(1) + 'px) scale(' +
+        (from.width / Math.max(1, to.width)).toFixed(3) + ')';
+
+    requestAnimationFrame(function(){
+        bub.style.transition = 'transform .62s cubic-bezier(.24,.82,.28,1)';
+        bub.style.transform = 'translate(0, 0) scale(1)';
+
+        setTimeout(function(){
+            bub.style.transition = '';
+            bub.style.transform = '';
+            bub.style.transformOrigin = '';
+        }, 680);
+    });
+}
+
+function renderPool(pool, passed){
+    const box = $('pool');
+    if(!box){
+        return;
+    }
+
+    const frag = document.createDocumentFragment();
+    let added = 0;
+    const fresh = [];          // 本拍新进池的，稍后要播“从核对面板飞进来”
+
+    (pool || []).forEach(function(u){
+        const key = String(u.uid);
+        if(vizPoolUids.has(key) || vizPoolUids.size + vizPoolExtra >= VIZ_POOL_MAX){
+            if(!vizPoolUids.has(key)){
+                vizPoolUids.add(key);
+                vizPoolExtra++;
+            }
+            return;
+        }
+        vizPoolUids.add(key);
+        const bub = buildBubble(u);
+        frag.appendChild(bub);
+        fresh.push({el: bub, uid: key});
+        added++;
+    });
+
+    if(added){
+        const anchor = box.querySelector('.pool-more');
+        box.insertBefore(frag, anchor || null);
+    }
+
+    // 记录气泡顺序：中奖名单按这个顺序排，和定格的高亮位置一致
+    const bubbles = box.querySelectorAll('.bub');
+    vizPoolUidIndex = new Map();
+    for(let i = 0; i < bubbles.length; i++){
+        const uid = bubbles[i].dataset.uid;
+        if(uid && !vizPoolUidIndex.has(uid)){
+            vizPoolUidIndex.set(uid, i);
+        }
+    }
+
+    let more = box.querySelector('.pool-more');
+    if(vizPoolExtra > 0){
+        if(!more){
+            more = document.createElement('span');
+            more.className = 'pool-more';
+            box.appendChild(more);
+        }
+        more.textContent = '+' + vizPoolExtra;
+        more.title = '还有 ' + vizPoolExtra + ' 名候选人未展示';
+    }else if(more){
+        more.remove();
+    }
+
+    const empty = box.querySelector('.pool-empty');
+    if(box.querySelector('.bub')){
+        if(empty){
+            empty.remove();
+        }
+    }else if(!empty){
+        const span = document.createElement('span');
+        span.className = 'pool-empty';
+        span.textContent = '还没有符合条件的用户';
+        box.appendChild(span);
+    }
+
+    $('poolStat').textContent =
+        passed + ' 人符合条件' +
+        (vizPoolExtra > 0 ? ' · 另有 ' + vizPoolExtra + ' 人未展示' : '');
+
+    // 有候选就把候选池窗口亮出来
+    const card = $('poolCard');
+    if(card && (vizPoolUids.size > 0 || passed > 0)){
+        card.hidden = false;
+    }
+
+    // 本拍新进池的：从核对面板里自己那块 chip 的位置飞进池子。
+    // 飞行期间把池子窗口临时抬到聚焦面板之上（否则头像会被 z-index:5 的面板挡住），
+    // 坐标延到下一帧再量——这一帧池子窗口可能刚从 hidden 变成显示
+    if(fresh.length){
+        if(card){
+            card.style.position = 'relative';
+            card.style.zIndex = '6';
+        }
+        requestAnimationFrame(function(){
+            requestAnimationFrame(function(){
+                fresh.forEach(function(f){
+                    flyBubbleFromChip(f.el, f.uid);
+                });
+            });
+        });
+        setTimeout(function(){
+            if(card){
+                card.style.position = '';
+                card.style.zIndex = '';
+            }
+        }, 900);
+    }
+}
+
+/* ============================================================
+   筛选结束：候选池从紧凑布局舒展成宽松布局
+   - 用 FLIP：先量紧凑位置 → 换宽松布局 → 反推 transform → 播放回位
+   - 全程只有同一批 .bub 元素，屏幕上不会出现重复头像
+   ============================================================ */
+
+const VIZ_POOL_LOOSE_MAX = 72;   // 宽松布局单个头像的最大边长
+const VIZ_POOL_LOOSE_MIN = 40;   // 人多时收到这个尺寸
+const VIZ_POOL_LOOSE_GAP = 18;   // 宽松布局的间隙
+const VIZ_POOL_MORPH_MS = 620;   // 舒展动画时长
+
+let vizPoolMorphed = false;
+let vizMorphSettled = true;
+let vizMorphWaiters = [];
+let vizMorphTimer = null;
+
+function whenMorphSettled(fn){
+    if(vizMorphSettled){
+        fn();
+        return;
+    }
+    vizMorphWaiters.push(fn);
+}
+
+function markMorphSettled(){
+    vizMorphSettled = true;
+
+    const waiters = vizMorphWaiters;
+    vizMorphWaiters = [];
+    waiters.forEach(function(fn){
+        fn();
+    });
+}
+
+/* 候选池：紧凑 → 宽松 */
+function morphPoolLoose(){
+    if(vizPoolMorphed){
+        return;
+    }
+    vizPoolMorphed = true;
+
+    const pool = $('pool');
+    if(!pool){
+        return;
+    }
+
+    const faces = Array.prototype.slice.call(
+        pool.querySelectorAll('.bub, .pool-more')
+    );
+    if(!faces.length){
+        return;
+    }
+
+    if(prefersReducedMotion()){
+        pool.classList.add('loose');
+        return;
+    }
+
+    // 1) 量出紧凑布局下的位置
+    const before = faces.map(function(el){
+        return el.getBoundingClientRect();
+    });
+
+    // 2) 选一档“尽量宽松又放得下”的尺寸并切换布局
+    const n = faces.length;
+    const W = pool.clientWidth;
+    const maxH = Math.max(280, Math.round(window.innerHeight * 0.66));
+    let size = VIZ_POOL_LOOSE_MAX;
+    const gap = VIZ_POOL_LOOSE_GAP;
+
+    for(; size >= VIZ_POOL_LOOSE_MIN; size -= 4){
+        const perRow = Math.max(1, Math.floor((W + gap) / (size + gap)));
+        const rows = Math.ceil(n / perRow);
+        if(rows * size + (rows - 1) * gap <= maxH){
+            break;
+        }
+    }
+
+    pool.style.setProperty('--bub-size', size + 'px');
+    pool.style.setProperty('--bub-gap', gap + 'px');
+    pool.classList.add('loose');
+
+    // 3) 量出宽松布局下的位置，用 transform 把每个头像倒推回原位
+    const after = faces.map(function(el){
+        return el.getBoundingClientRect();
+    });
+
+    faces.forEach(function(el, i){
+        const a = before[i];
+        const c = after[i];
+        const k = a.width / Math.max(1, c.width);
+
+        el.style.transition = 'none';
+        el.style.transform =
+            'translate(' + (a.left - c.left) + 'px,' +
+            (a.top - c.top) + 'px) scale(' + k + ')';
+    });
+
+    // 4) 强制提交起始状态，再统一播放回位
+    pool.getBoundingClientRect();
+
+    vizMorphSettled = false;
+
+    requestAnimationFrame(function(){
+        const ease =
+            'transform ' + VIZ_POOL_MORPH_MS + 'ms cubic-bezier(.45,.05,.2,1)';
+        faces.forEach(function(el){
+            el.style.transition = ease;
+            el.style.transform = 'translate(0,0) scale(1)';
+        });
+    });
+
+    if(vizMorphTimer){
+        clearTimeout(vizMorphTimer);
+    }
+    vizMorphTimer = setTimeout(function(){
+        vizMorphTimer = null;
+
+        // 交还控制权：高亮/定格要用样式表里的 transform
+        faces.forEach(function(el){
+            el.style.transition = '';
+            el.style.transform = '';
+        });
+
+        markMorphSettled();
+    }, VIZ_POOL_MORPH_MS + 80);
+}
+
+/* 抽奖动效：直接在候选池窗口里进行——
+   随机点亮候选头像、不断更替，最终定格到中奖者身上 */
+
+const VIZ_DRAW_TICK_MS = 120;   // 高亮更替的节流间隔
+const VIZ_DRAW_LOCK_MS = 900;   // 定格在中奖头像上停留多久再出名单
+
+// 当前亮着的头像集合：每次换血后数量恒等于中奖名额
+let vizDrawLit = new Set();
+
+/* 候选池里当前的气泡 */
+function poolBubbles(){
+    const box = $('pool');
+    return box ? Array.prototype.slice.call(box.querySelectorAll('.bub')) : [];
+}
+
+/* 每个 tick：随机点亮一批候选头像。
+   任意时刻同时亮着的头像数量，与中奖名额严格一致 */
+function poolDrawTick(){
+    const bubbles = poolBubbles();
+    const n = bubbles.length;
+    if(!n){
+        return;
+    }
+
+    const want = Math.max(1, Math.min(n, vizDrawCount || 1));
+
+    // 洗牌后取前 want 个：每拍整批换新，但数量恒定
+    const order = [];
+    for(let i = 0; i < n; i++){
+        order.push(i);
+    }
+    for(let i = n - 1; i > 0; i--){
+        const j = (Math.random() * (i + 1)) | 0;
+        const t = order[i];
+        order[i] = order[j];
+        order[j] = t;
+    }
+
+    const next = new Set();
+    for(let i = 0; i < want; i++){
+        next.add(bubbles[order[i]]);
+    }
+
+    // 只改有变化的 class，避免整池每 tick 全量重写
+    vizDrawLit.forEach(function(b){
+        if(!next.has(b)){
+            b.classList.remove('hit');
+        }
+    });
+    next.forEach(function(b){
+        if(!vizDrawLit.has(b)){
+            b.classList.add('hit');
+        }
+    });
+    vizDrawLit = next;
+}
+
+function stopPoolDraw(){
+    if(vizDrawTimer){
+        clearInterval(vizDrawTimer);
+        vizDrawTimer = null;
+    }
+    if(vizDrawWinTimer){
+        clearTimeout(vizDrawWinTimer);
+        vizDrawWinTimer = null;
+    }
+}
+
+/* 定格：其余候选压暗，只留下中奖者 */
+function lockPool(winners){
+    stopPoolDraw();
+
+    const pool = $('pool');
+    const bubbles = poolBubbles();
+    if(!pool || !bubbles.length){
+        return;
+    }
+
+    const want = new Set();
+    (winners || []).forEach(function(win){
+        want.add(String(win.uid));
+    });
+
+    vizDrawLit = new Set();
+
+    let lit = 0;
+    bubbles.forEach(function(b){
+        b.classList.remove('hit');
+        if(want.has(b.dataset.uid)){
+            b.classList.add('win');
+            // 错峰：一个一个弹起来，比齐刷刷同时弹生动（上限 6 档，保证在定格时间内弹完）
+            b.style.animationDelay = Math.min(lit, 6) * 25 + 'ms';
+            lit++;
+        }
+    });
+
+    // 中奖者一定出自候选池；万一对不上就随机点亮“中奖人数”个
+    if(!lit){
+        const need = Math.max(
+            1,
+            Math.min(bubbles.length, (winners || []).length || vizDrawCount || 1)
+        );
+        const order = [];
+        for(let i = 0; i < bubbles.length; i++){
+            order.push(i);
+        }
+        for(let i = bubbles.length - 1; i > 0; i--){
+            const j = (Math.random() * (i + 1)) | 0;
+            const t = order[i];
+            order[i] = order[j];
+            order[j] = t;
+        }
+        for(let i = 0; i < need; i++){
+            bubbles[order[i]].classList.add('win');
+        }
+    }
+
+    pool.classList.remove('drawing');
+    pool.classList.add('locked');
+}
+
+/* 动效播完：退出播放态，然后揭晓中奖名单 */
+function finishPoolDraw(){
+    vizDrawing = false;
+    window.__busyDrawing = false;
+    lastResultKey = '';
+    vizRevealArmed = true;
+    refreshResult();
+}
+
+/* 开奖：候选池里随机跳动一段时间，最后定格在中奖者身上 */
+function playPoolDraw(winners){
+    const pool = $('pool');
+    if(!pool){
+        return;
+    }
+
+    stopPoolDraw();
+
+    // 清掉上一轮留下的状态
+    vizDrawLit = new Set();
+    poolBubbles().forEach(function(b){
+        b.classList.remove('hit');
+        b.classList.remove('win');
+        b.style.animationDelay = '';
+    });
+    pool.classList.remove('locked');
+
+    vizDrawing = true;
+
+    // 动效期间不给提示文本，名单也不出现
+    const state = $('poolState');
+    if(state){
+        state.textContent = '';
+    }
+    const w = $('winners');
+    if(w){
+        w.innerHTML = '';
+    }
+
+    // 动效就在候选池窗口里进行，聚焦到它
+    focusPanel('poolCard');
+
+    // 等候选池舒展成宽松布局之后，再开始随机高亮
+    whenMorphSettled(function(){
+        pool.classList.add('drawing');
+
+        if(prefersReducedMotion()){
+            vizDrawWinTimer = setTimeout(function(){
+                lockPool(winners);
+                vizDrawWinTimer = setTimeout(finishPoolDraw, VIZ_DRAW_LOCK_MS);
+            }, VIZ_DRAW_MS);
+            return;
+        }
+
+        // 抽奖期间窗口涨大：目标按屏幕自适应——放大后宽度 ≈ 可用宽度的 70%，
+        // 整段用「前快后慢」的曲线，抽完正好涨到位；出名单时再弹到最终尺寸。
+        // 以中心为原点放大，占位用上下各一半的 margin 补：渲染出来的上边缘不动
+        // （不会压到上面的卡片），下面的内容也不会重叠。
+        // 宽高都用 offset*（布局尺寸）：getBoundingClientRect 会带上当前倍数
+        const card = $('poolCard');
+        if(card && !card.hidden){
+            const avail = document.documentElement.clientWidth - 20;
+            const baseW = Math.max(1, card.offsetWidth);
+            const baseH = Math.max(1, card.offsetHeight);
+            // 窄屏时 70% 可能还不如卡片本身宽，这里保底 1.16（不至于缩回去）
+            const grow = Math.max(1.16, (avail * 0.7) / baseW);
+            const dur = (VIZ_DRAW_MS / 1000).toFixed(2) + 's';
+            // 曲线带明显过冲：涨到位时冲过目标约 29% 再收回来（回弹），
+            // 落点正好在定格那一刻。目标本身只占可用宽 70%，余量足够给过冲
+            const ease = 'cubic-bezier(.2, .8, .3, 1.95)';
+            const half = ((baseH * (grow - 1)) / 2).toFixed(1) + 'px';
+
+            card.style.transformOrigin = 'center center';
+            card.style.transition =
+                'transform ' + dur + ' ' + ease +
+                ', margin-top ' + dur + ' ' + ease +
+                ', margin-bottom ' + dur + ' ' + ease;
+            card.style.transform = 'scale(' + grow.toFixed(3) + ')';
+            card.style.marginTop = half;
+            card.style.marginBottom = half;
+
+            // 整个放大过程都保持居中：每帧跟着“长高的量”重新对中
+            followFocus(card, VIZ_DRAW_MS);
+        }
+
+        vizDrawTimer = setInterval(poolDrawTick, VIZ_DRAW_TICK_MS);
+        poolDrawTick();
+
+        vizDrawWinTimer = setTimeout(function(){
+            lockPool(winners);
+            vizDrawWinTimer = setTimeout(finishPoolDraw, VIZ_DRAW_LOCK_MS);
+        }, VIZ_DRAW_MS);
+    });
+}
+
+/* 出名单前：候选池整体淡出、收起。
+   未中奖的头像就此退场，窗口完全交给中奖名单；
+   中奖头像也随池子一起退场，稍后在名单里出现，不会同屏重复 */
+function clearPoolForWinners(){
+    const pool = $('pool');
+    if(!pool || pool.classList.contains('cleared') || !pool.querySelector('.bub')){
+        return false;
+    }
+
+    if(prefersReducedMotion()){
+        pool.classList.add('cleared');
+        return true;
+    }
+
+    pool.classList.add('clearing');
+    setTimeout(function(){
+        // 若已经开始了新一轮（resetViz 移除了 clearing），就不要再动它
+        if(pool.classList.contains('clearing')){
+            pool.classList.remove('clearing');
+            pool.classList.add('cleared');
+        }
+    }, 340);
+
+    return true;
+}
+
+function prefersReducedMotion(){
+    return !!(window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion:reduce)').matches);
+}
+
+/* 主渲染 */
+function renderViz(p){
+    const card = vizCard();
+    if(!card){
+        return;
+    }
+
+    const stage = p.stage || 'idle';
+    const running = !!p.running;
+    const failed = stage === 'failed';
+
+    vizStage = stage;
+
+    if(p.drawCount > 0){
+        vizDrawCount = p.drawCount;
+    }
+
+    card.classList.toggle('viz-running', running);
+
+    if(stage !== 'idle'){
+        const vbox = $('vizVideo');
+        if(p.videoTitle || p.upName){
+            vbox.hidden = false;
+            const key = p.bv + '|' + p.videoTitle + '|' + p.upName;
+            if(key !== vizVideoKey){
+                vizVideoKey = key;
+                $('vizVideoTitle').textContent =
+                    (p.videoTitle || '') + (p.upName ? ' · UP：' + p.upName : '');
+                const img = $('vizUpAvatar');
+                img.dataset.name = p.upName || '';
+                img.src = avatarSrc(p.upAvatar, p.upName);
+                img.onerror = function(){
+                    this.onerror = null;
+                    this.src = avatarFallback(this.dataset.name);
+                };
+            }
+        }
+    }
+
+    // 弹幕播放窗口：只在收集/核对阶段开；一旦进入抽奖、结束或失败，
+    // 立即清场（丢积压 + 整层淡出），保证出结果时画面干净
+    // 减弱动效时不开弹幕窗口：整场演出直接跳过（文档里承诺的行为）
+    const dmOpen = (stage === 'comments' || stage === 'filter') && !prefersReducedMotion();
+    if(vizDmWindowOpen && !dmOpen){
+        closeDanmuWindow();
+    }
+    vizDmWindowOpen = dmOpen;
+
+    renderSteps(stage, running);
+    renderCrawl(p, running);
+    renderDanmu(p);
+    renderFilter(p);
+    renderPool(p.pool, p.usersPassed || 0);
+
+    // 筛选结束（进入抽奖）：候选池从紧凑布局舒展成宽松布局
+    if((stage === 'draw' || stage === 'done') && !vizPoolMorphed){
+        requestAnimationFrame(morphPoolLoose);
+    }
+
+    // 正在执行的步骤，对应窗口居中放大
+    focusPanel(VIZ_FOCUS_BY_STAGE[stage] || '');
+
+    $('vizState').textContent =
+        p.error
+            ? '· ' + p.error
+            : (p.stageText ? '· ' + p.stageText : '');
+
+    $('vizClock').textContent =
+        p.elapsedMs > 0 ? (p.elapsedMs / 1000).toFixed(1) + 's' : '';
+}
+
+/* 点击“开始抽奖”后，后端写入新进度前，轮询可能读到上一轮残留的结束状态。
+   用 startedAt 与点击时间比较来识别这种“陈旧收尾”，短暂忽略它。 */
+function isStaleFinish(p){
+    return !p.running &&
+        p.startedAt > 0 &&
+        window.__runClickAt > 0 &&
+        p.startedAt < window.__runClickAt &&
+        Date.now() - window.__runClickAt < 3000;
+}
+
+/* 轮询 */
+async function pollViz(){
+
+    vizTimer = null;
+
+    try{
+
+        const r = await fetch('/api/progress', {cache:'no-store'});
+        const p = await r.json();
+
+        vizShow();
+        renderViz(p);
+
+        if(p.running){
+            vizTimer = setTimeout(pollViz, VIZ_POLL_MS);
+            return;
+        }
+
+        if(isStaleFinish(p)){
+            // 上一轮残留的进度：不能当成本轮，否则会把上一轮的名单当成新结果
+            vizStage = '';
+            vizTimer = setTimeout(pollViz, VIZ_POLL_MS);
+            return;
+        }
+
+        window.__runClickAt = 0;
+
+        // 结束：结果已出，抽奖动效与名单都交给 renderResult 处理
+        if(p.stage === 'done'){
+            if(!vizDrawStarted){
+                lastResultKey = '';
+                refreshResult();
+            }
+        }else if(p.stage === 'failed'){
+            window.__busyDrawing = false;
+            // 本轮失败：把候选池与名单的状态恢复原样
+            stopPoolDraw();
+            vizDrawing = false;
+            const pool = $('pool');
+            if(pool){
+                pool.classList.remove('drawing');
+                pool.classList.remove('locked');
+            }
+            poolBubbles().forEach(function(b){
+                b.classList.remove('hit');
+                b.classList.remove('win');
+            });
+            vizDrawLit = new Set();
+            resetPoolCardZoom();
+            const state = $('poolState');
+            if(state){
+                state.textContent = '';
+            }
+            lastResultKey = '';
+            refreshResult();
+        }
+
+    }catch(e){
+        vizTimer = setTimeout(pollViz, 1500);
+    }
+}
+
+function startViz(){
+    vizShow();
+    if(!vizTimer){
+        pollViz();
+    }
+}
+
+/* 页面打开时如果任务正在跑（比如刷新过页面），自动接上 */
+async function initViz(){
+    try{
+        const r = await fetch('/api/progress', {cache:'no-store'});
+        const p = await r.json();
+        if(!p.startedAt){
+            return;
+        }
+        vizShow();
+        renderViz(p);
+        if(p.running){
+            window.__busyDrawing = true;
+            startViz();
+        }else if(p.stage === 'done'){
+            // 页面刷新后接上：结果已经出了，直接展示名单
+            vizDrawStarted = true;
+        }
+    }catch(e){}
+}
+
+
+/* ============================================================
+   事件
+   ============================================================ */
+
+$('login').onclick = login;
+
+$('start').onclick = lottery;
+
+$('close').onclick = shutdown;
+
+
+/* ============================================================
+   初始化
+   ============================================================ */
+
+/* 关闭标签页/浏览器时通知后端退出。
+   刷新也会触发 pagehide，但刷新完很快又会有轮询请求，后端据此取消退出；
+   进入往返缓存（bfcache）不算关闭，不通知 */
+window.addEventListener('pagehide', function(e){
+    if(e.persisted){
+        return;
+    }
+    if(navigator.sendBeacon){
+        navigator.sendBeacon('/api/ui-closed');
+    }else{
+        fetch('/api/ui-closed', {method:'POST', keepalive:true}).catch(function(){});
+    }
+});
+
+/* 打开页面时自动进入全屏。浏览器只允许用户手势触发全屏，
+   所以加载时先尝试一次，没成功就等用户第一次点击/按键时补上 */
+function tryFullscreen(){
+    if(document.fullscreenElement || document.webkitFullscreenElement){
+        return;
+    }
+    const el = document.documentElement;
+    const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+    if(!fn){
+        return;
+    }
+    try{
+        const p = fn.call(el);
+        if(p && p.catch){
+            p.catch(function(){});
+        }
+    }catch(e){}
+}
+
+window.addEventListener('pointerdown', tryFullscreen, {once:true});
+window.addEventListener('keydown', tryFullscreen, {once:true});
+tryFullscreen();
+
+initViz();
+
+refreshStatus();
+
+refreshResult();
+
+setInterval(
+    function(){
+
+        refreshStatus();
+
+        refreshResult();
+    },
+    1000
+);
+
+</script>
+
+</body>
+</html>

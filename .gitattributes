@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+# Windows 脚本必须保持 CRLF，否则某些环境下会解析异常
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制
+*.exe binary
+*.syso binary
+*.png binary
+*.ico binary
+dist/** binary
